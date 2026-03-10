@@ -223,6 +223,25 @@ describe("resolveModel", () => {
     expect(result.model?.id).toBe("missing-model");
   });
 
+  it("defaults provider-configured ollama fallback models to native ollama api", () => {
+    const cfg = {
+      models: {
+        providers: {
+          ollama: {
+            baseUrl: "http://127.0.0.1:11434",
+            models: [],
+          },
+        },
+      },
+    } as OpenClawConfig;
+
+    const result = resolveModel("ollama", "qwen2.5:7b", "/tmp/agent", cfg);
+
+    expect(result.error).toBeUndefined();
+    expect(result.model?.api).toBe("ollama");
+    expect(result.model?.baseUrl).toBe("http://127.0.0.1:11434");
+  });
+
   it("includes provider headers in provider fallback model", () => {
     const cfg = {
       models: {
