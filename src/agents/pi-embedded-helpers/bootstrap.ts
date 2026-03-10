@@ -96,6 +96,54 @@ type TrimBootstrapResult = {
   originalLength: number;
 };
 
+function extractBootstrapSections(content: string, sectionNames: string[]): string[] {
+  const results: string[] = [];
+  const lines = content.split("\n");
+  for (const name of sectionNames) {
+    let sectionLines: string[] = [];
+    let inSection = false;
+    let sectionLevel = 0;
+    for (const line of lines) {
+      const headingMatch = line.match(/^(#{2,3})\s+(.+?)\s*$/);
+      if (headingMatch) {
+        const level = headingMatch[1].length;
+        const headingText = headingMatch[2];
+        if (!inSection) {
+          if (headingText.toLowerCase() === name.toLowerCase()) {
+            inSection = true;
+            sectionLevel = level;
+            sectionLines = [line];
+            continue;
+          }
+        } else if (level <= sectionLevel) {
+          break;
+        }
+      }
+      if (inSection) {
+        sectionLines.push(line);
+      }
+    }
+    const joined = sectionLines.join("\n").trim();
+    if (joined) {
+      results.push(joined);
+    }
+  }
+  return results;
+}
+
+function buildAgentsPriorityExcerpt(content: string): string | null {
+  const sections = extractBootstrapSections(content, [
+    "Session Startup",
+    "Red Lines",
+    "Every Session",
+    "Safety",
+  ]);
+  if (sections.length === 0) {
+    return null;
+  }
+  return ["[AGENTS.md prioritized excerpt]", ...sections].join("\n\n");
+}
+
 export function resolveBootstrapMaxChars(cfg?: OpenClawConfig): number {
   const raw = cfg?.agents?.defaults?.bootstrapMaxChars;
   if (typeof raw === "number" && Number.isFinite(raw) && raw > 0) {
@@ -237,14 +285,23 @@ export function buildBootstrapContextFiles(
       break;
     }
     const fileMaxChars = Math.max(1, Math.min(maxChars, remainingTotalChars));
-    const trimmed = trimBootstrapContent(file.content ?? "", file.name, fileMaxChars);
+    const rawContent = file.content ?? "";
+    const prioritizedAgentsContent =
+      file.name === "AGENTS.md" && rawContent.length > fileMaxChars
+        ? buildAgentsPriorityExcerpt(rawContent)
+        : null;
+    const contentForTrim = prioritizedAgentsContent ?? rawContent;
+    const trimmed = trimBootstrapContent(contentForTrim, file.name, fileMaxChars);
     const contentWithinBudget = clampToBudget(trimmed.content, remainingTotalChars);
     if (!contentWithinBudget) {
       continue;
     }
     if (trimmed.truncated || contentWithinBudget.length < trimmed.content.length) {
+      const warningSuffix = prioritizedAgentsContent
+        ? "; injected AGENTS.md critical sections before truncation"
+        : "";
       opts?.warn?.(
-        `workspace bootstrap file ${file.name} is ${trimmed.originalLength} chars (limit ${trimmed.maxChars}); truncating in injected context`,
+        `workspace bootstrap file ${file.name} is ${trimmed.originalLength} chars (limit ${trimmed.maxChars}); truncating in injected context${warningSuffix}`,
       );
     }
     remainingTotalChars = Math.max(0, remainingTotalChars - contentWithinBudget.length);
