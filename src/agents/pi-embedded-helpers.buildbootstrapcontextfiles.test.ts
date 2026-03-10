@@ -59,6 +59,31 @@ describe("buildBootstrapContextFiles", () => {
     expect(warnings[0]).toContain("TOOLS.md");
     expect(warnings[0]).toContain("limit 200");
   });
+
+  it("prioritizes critical AGENTS.md sections before truncation", () => {
+    const content = [
+      "# Workspace",
+      "",
+      "## Session Startup",
+      "Step A",
+      "",
+      "## Red Lines",
+      "Never guess.",
+      "",
+      "## Extra",
+      "x".repeat(400),
+    ].join("\n");
+    const warnings: string[] = [];
+    const [result] = buildBootstrapContextFiles([makeFile({ content })], {
+      maxChars: 120,
+      warn: (message) => warnings.push(message),
+    });
+    expect(result?.content).toContain("[AGENTS.md prioritized excerpt]");
+    expect(result?.content).toContain("## Session Startup");
+    expect(result?.content).toContain("## Red Lines");
+    expect(warnings.length).toBeGreaterThanOrEqual(0);
+  });
+
   it("keeps content under the default limit", () => {
     const long = "a".repeat(DEFAULT_BOOTSTRAP_MAX_CHARS - 10);
     const files = [makeFile({ content: long })];

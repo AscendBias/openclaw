@@ -79,6 +79,7 @@ function resolveRepoRoot(params: {
   const candidates = [params.workspaceDir, params.cwd]
     .map((value) => value?.trim())
     .filter(Boolean) as string[];
+  const rootsByCandidate = new Map<string, string>();
   const seen = new Set<string>();
   for (const candidate of candidates) {
     const resolved = path.resolve(candidate);
@@ -88,8 +89,33 @@ function resolveRepoRoot(params: {
     seen.add(resolved);
     const root = findGitRoot(resolved);
     if (root) {
+      rootsByCandidate.set(resolved, root);
+    }
+  }
+  const workspaceCandidate = params.workspaceDir?.trim();
+  const cwdCandidate = params.cwd?.trim();
+  if (workspaceCandidate && cwdCandidate) {
+    const workspaceResolved = path.resolve(workspaceCandidate);
+    const cwdResolved = path.resolve(cwdCandidate);
+    const workspaceRoot = rootsByCandidate.get(workspaceResolved);
+    const cwdRoot = rootsByCandidate.get(cwdResolved);
+    if (workspaceRoot && cwdRoot && isDefaultStateWorkspacePath(workspaceResolved)) {
+      return cwdRoot;
+    }
+  }
+  for (const candidate of candidates) {
+    const resolved = path.resolve(candidate);
+    const root = rootsByCandidate.get(resolved);
+    if (root) {
       return root;
     }
   }
   return undefined;
+}
+
+function isDefaultStateWorkspacePath(inputPath: string): boolean {
+  const normalized = inputPath.replaceAll("\\", "/").toLowerCase();
+  return (
+    normalized.endsWith("/.openclaw/workspace") || /\/\.openclaw\/workspace-[^/]+$/.test(normalized)
+  );
 }

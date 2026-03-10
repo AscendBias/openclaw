@@ -510,6 +510,7 @@ export function buildAgentSystemPrompt(params: {
     "## Workspace",
     `Your working directory is: ${displayWorkspaceDir}`,
     workspaceGuidance,
+    "For repo-inspection questions (for example branch/hash/file lookup), run tools against this workspace and report exact command output. If a required tool/command is unavailable or fails, state that plainly and do not guess or fabricate results.",
     ...workspaceNotes,
     "",
     ...docsSection,

@@ -94,6 +94,20 @@ describe("buildSystemPromptParams repo root", () => {
     expect(runtimeInfo.repoRoot).toBe(repoRoot);
   });
 
+  it("prefers cwd repo when workspace is the default state workspace path", async () => {
+    const temp = await makeTempDir("state-workspace");
+    const repoRoot = path.join(temp, "repo");
+    const workspaceDir = path.join(temp, ".openclaw", "workspace");
+    await fs.mkdir(workspaceDir, { recursive: true });
+    await fs.mkdir(repoRoot, { recursive: true });
+    await makeRepoRoot(workspaceDir);
+    await makeRepoRoot(repoRoot);
+
+    const { runtimeInfo } = buildParams({ workspaceDir, cwd: repoRoot });
+
+    expect(runtimeInfo.repoRoot).toBe(repoRoot);
+  });
+
   it("returns undefined when no repo is found", async () => {
     const workspaceDir = await makeTempDir("norepo");
 
