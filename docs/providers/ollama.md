@@ -275,8 +275,36 @@ ps aux | grep ollama
 ollama serve
 ```
 
+### Agent requests time out after 600 seconds
+
+If `openclaw agent ...` or channel replies consistently fail around 10 minutes, the timeout is usually the embedded agent runtime limit, not Ollama availability.
+
+Check these first:
+
+- `openclaw agent` uses the same embedded runtime path as inbound channel replies (Telegram, Discord, and others), so a timeout here usually points to runtime/model config rather than channel delivery.
+- `agents.defaults.timeoutSeconds` controls the runtime timeout (default: `600`).
+- Small local models can struggle with long tool-heavy runs.
+
+Example baseline for local debugging:
+
+```json5
+{
+  agents: {
+    defaults: {
+      timeoutSeconds: 1200,
+      model: { primary: "ollama/gpt-oss:20b" },
+      subagents: { runTimeoutSeconds: 900 },
+    },
+  },
+}
+```
+
+If you set `models.providers.ollama` explicitly, remember that auto-discovery is disabled and you must define model entries manually. For first bring-up, implicit discovery is usually simpler.
+
 ## See Also
 
 - [Model Providers](/concepts/model-providers) - Overview of all providers
 - [Model Selection](/concepts/models) - How to choose models
 - [Configuration](/gateway/configuration) - Full config reference
+- [Agent Loop](/concepts/agent-loop) - Runtime and timeout behavior
+- [Agent Send](/tools/agent-send) - Direct agent-run behavior
