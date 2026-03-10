@@ -160,8 +160,8 @@ export function resolveModelWithRegistry(params: {
   }
 
   const providers = cfg?.models?.providers ?? {};
-  const inlineModels = buildInlineProviderModels(providers);
   const normalizedProvider = normalizeProviderId(provider);
+  const inlineModels = buildInlineProviderModels(providers);
   const inlineMatch = inlineModels.find(
     (entry) => normalizeProviderId(entry.provider) === normalizedProvider && entry.id === modelId,
   );
@@ -207,13 +207,14 @@ export function resolveModelWithRegistry(params: {
   const configuredModel = providerConfig?.models?.find((candidate) => candidate.id === modelId);
   const providerHeaders = sanitizeModelHeaders(providerConfig?.headers);
   const modelHeaders = sanitizeModelHeaders(configuredModel?.headers);
+  const defaultProviderApi = normalizedProvider === "ollama" ? "ollama" : "openai-responses";
   if (providerConfig || modelId.startsWith("mock-")) {
     return normalizeResolvedModel({
       provider,
       model: {
         id: modelId,
         name: modelId,
-        api: providerConfig?.api ?? "openai-responses",
+        api: providerConfig?.api ?? defaultProviderApi,
         provider,
         baseUrl: providerConfig?.baseUrl,
         reasoning: configuredModel?.reasoning ?? false,
