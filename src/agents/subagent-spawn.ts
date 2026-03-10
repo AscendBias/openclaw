@@ -290,10 +290,13 @@ export async function spawnSubagentDirect(
     Number.isFinite(cfg.agents.defaults.subagents.runTimeoutSeconds)
       ? Math.max(0, Math.floor(cfg.agents.defaults.subagents.runTimeoutSeconds))
       : 0;
-  const runTimeoutSeconds =
+
+  const paramRunTimeoutSeconds =
     typeof params.runTimeoutSeconds === "number" && Number.isFinite(params.runTimeoutSeconds)
       ? Math.max(0, Math.floor(params.runTimeoutSeconds))
-      : cfgSubagentTimeout;
+      : 0;
+
+  const runTimeoutSeconds = Math.max(paramRunTimeoutSeconds, cfgSubagentTimeout);
   let modelApplied = false;
   let threadBindingReady = false;
   const { mainKey, alias } = resolveMainSessionAlias(cfg);

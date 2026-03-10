@@ -626,12 +626,43 @@ async function resolveOllamaImplicitProvider(
 
   const ollamaBaseUrl = explicitOllama?.baseUrl;
   const hasExplicitOllamaConfig = Boolean(explicitOllama);
+  const hasExplicitOllamaModels =
+    Array.isArray(explicitOllama?.models) && explicitOllama.models.length > 0;
+
+  if (hasExplicitOllamaConfig && hasExplicitOllamaModels) {
+    const explicitOllamaConfig = explicitOllama!;
+    return {
+      ollama: {
+        ...explicitOllamaConfig,
+        models: explicitOllamaConfig.models ?? [],
+        baseUrl: resolveOllamaApiBase(explicitOllamaConfig.baseUrl),
+        api: explicitOllamaConfig.api ?? "ollama",
+        apiKey: ollamaKey ?? explicitOllamaConfig.apiKey ?? OLLAMA_LOCAL_AUTH_MARKER,
+      },
+    };
+  }
+
   const ollamaProvider = await buildOllamaProvider(ollamaBaseUrl, {
     quiet: !ollamaKey && !hasExplicitOllamaConfig,
   });
+
+  if (ollamaProvider.models.length === 0 && hasExplicitOllamaConfig) {
+    const explicitOllamaConfig = explicitOllama!;
+    return {
+      ollama: {
+        ...explicitOllamaConfig,
+        models: explicitOllamaConfig.models ?? [],
+        baseUrl: resolveOllamaApiBase(explicitOllamaConfig.baseUrl),
+        api: explicitOllamaConfig.api ?? "ollama",
+        apiKey: ollamaKey ?? explicitOllamaConfig.apiKey ?? OLLAMA_LOCAL_AUTH_MARKER,
+      },
+    };
+  }
+
   if (ollamaProvider.models.length === 0 && !ollamaKey && !explicitOllama?.apiKey) {
     return undefined;
   }
+
   return {
     ollama: {
       ...ollamaProvider,
