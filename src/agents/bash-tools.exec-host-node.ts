@@ -185,9 +185,7 @@ export async function executeNodeHostCommand(
     params.warnings.push(`⚠️ Obfuscated command detected: ${obfuscation.reasons.join("; ")}`);
   }
   const trustedRepoInspection =
-    hostSecurity === "allowlist" && analysisOk
-      ? isTrustedRepoInspectionCommand(baseAllowlistEval.segments)
-      : false;
+    analysisOk && isTrustedRepoInspectionCommand(baseAllowlistEval.segments);
   const requiresAsk =
     requiresExecApproval({
       ask: hostAsk,
@@ -195,6 +193,7 @@ export async function executeNodeHostCommand(
       analysisOk,
       allowlistSatisfied: allowlistSatisfied || trustedRepoInspection,
     }) || obfuscation.detected;
+  const shouldBypassApproval = trustedRepoInspection && !obfuscation.detected;
   const invokeTimeoutMs = Math.max(
     10_000,
     (typeof params.timeoutSec === "number" ? params.timeoutSec : params.defaultTimeoutSec) * 1000 +
@@ -225,7 +224,7 @@ export async function executeNodeHostCommand(
       idempotencyKey: crypto.randomUUID(),
     }) satisfies Record<string, unknown>;
 
-  if (requiresAsk) {
+  if (requiresAsk && !shouldBypassApproval) {
     const {
       approvalId,
       approvalSlug,
