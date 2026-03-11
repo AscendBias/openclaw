@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import fs from "node:fs/promises";
+import path from "node:path";
 import { promisify } from "node:util";
 import type { ThinkLevel } from "../../auto-reply/thinking.js";
 import {
@@ -261,23 +262,34 @@ const TRUSTED_REPO_INSPECTION_TIMEOUT_MS = 10_000;
 const execFileAsync = promisify(execFile);
 
 function extractCommandSliceAfterPromptMarker(prompt: string): string | undefined {
-  const marker = /run only this command in the workspace repo\s*:/i;
-  const match = marker.exec(prompt);
-  if (!match) {
-    return undefined;
+  const marker = /run only this command in the workspace repo\s*:/gi;
+  let markerMatch: RegExpExecArray | null;
+  let selectedCommand: string | undefined;
+  while ((markerMatch = marker.exec(prompt)) !== null) {
+    const start = markerMatch.index + markerMatch[0].length;
+    const tail = prompt.slice(start).trim();
+    if (!tail) {
+      continue;
+    }
+    const stop = tail.search(/\breturn only the output\b/i);
+    const candidate = (stop >= 0 ? tail.slice(0, stop) : tail).trim();
+    if (!candidate) {
+      continue;
+    }
+    const commandLine =
+      candidate
+        .split(/\r?\n/)
+        .map((line) => line.replace(/^[\s`>*-]+|[\s`]+$/g, ""))
+        .find((line) => /\bgit\s+rev-parse\b/i.test(line)) ?? candidate;
+    const dequoted = commandLine.replace(/^[`"']+|[`"']+$/g, "").trim();
+    const normalized = dequoted.replace(/[.;"']+$/g, "").trim();
+    if (normalized) {
+      // Prefer the last marker in the prompt so old quoted examples in context
+      // cannot shadow the user's latest strict command.
+      selectedCommand = normalized;
+    }
   }
-  const start = match.index + match[0].length;
-  const tail = prompt.slice(start).trim();
-  if (!tail) {
-    return undefined;
-  }
-  const stop = tail.search(/\breturn only the output\b/i);
-  const candidate = (stop >= 0 ? tail.slice(0, stop) : tail).trim();
-  if (!candidate) {
-    return undefined;
-  }
-  const dequoted = candidate.replace(/^[`"']+|[`"']+$/g, "").trim();
-  return dequoted.replace(/[.;"']+$/g, "").trim();
+  return selectedCommand;
 }
 
 function extractTrustedRevParseCommandFromPrompt(prompt: string): string | undefined {
@@ -285,8 +297,14 @@ function extractTrustedRevParseCommandFromPrompt(prompt: string): string | undef
   if (!normalized.includes("do not guess") || !normalized.includes("workspace repo")) {
     return undefined;
   }
-  const trustedCommandMatch = prompt.match(/git\s+rev-parse\s+--(?:abbrev-ref|short)\s+head/i);
-  return trustedCommandMatch ? trustedCommandMatch[0] : undefined;
+  const trustedCommandMatches = prompt.matchAll(
+    /git\s+rev-parse\s+--(?:abbrev-ref|short(?:=\d+)?)\s+head\b/gi,
+  );
+  let lastMatch: string | undefined;
+  for (const match of trustedCommandMatches) {
+    lastMatch = match[0];
+  }
+  return lastMatch;
 }
 
 export function resolveTrustedRepoInspectionArgv(prompt: string): string[] | undefined {
@@ -393,11 +411,11 @@ export async function runEmbeddedPiAgent(
             payloads: [{ text: stdout.trim() }],
             meta: { durationMs: Date.now() - started },
           };
-        } catch (err) {
+        } catch {
           return {
             payloads: [
               {
-                text: `Failed to run trusted repo inspection command: ${describeUnknownError(err)}`,
+                text: "Unable to run the requested workspace repo command.",
                 isError: true,
               },
             ],
@@ -408,7 +426,7 @@ export async function runEmbeddedPiAgent(
       const trustedRepoInspectionFileLookup = resolveTrustedRepoInspectionFileLookup(params.prompt);
       if (trustedRepoInspectionFileLookup) {
         try {
-          await fs.access(trustedRepoInspectionFileLookup);
+          await fs.access(path.join(resolvedWorkspace, trustedRepoInspectionFileLookup));
           return {
             payloads: [{ text: trustedRepoInspectionFileLookup }],
             meta: { durationMs: Date.now() - started },
