@@ -15,6 +15,7 @@ import {
   resolveExecApprovalsFromFile,
 } from "../infra/exec-approvals.js";
 import { detectCommandObfuscation } from "../infra/exec-obfuscation-detect.js";
+import { isTrustedRepoInspectionCommand } from "../infra/exec-trusted-repo-inspection.js";
 import { buildNodeShellCommand } from "../infra/node-shell.js";
 import { parsePreparedSystemRunPayload } from "../infra/system-run-approval-context.js";
 import { logInfo } from "../logger.js";
@@ -183,12 +184,16 @@ export async function executeNodeHostCommand(
     );
     params.warnings.push(`⚠️ Obfuscated command detected: ${obfuscation.reasons.join("; ")}`);
   }
+  const trustedRepoInspection =
+    hostSecurity === "allowlist" && analysisOk
+      ? isTrustedRepoInspectionCommand(baseAllowlistEval.segments)
+      : false;
   const requiresAsk =
     requiresExecApproval({
       ask: hostAsk,
       security: hostSecurity,
       analysisOk,
-      allowlistSatisfied,
+      allowlistSatisfied: allowlistSatisfied || trustedRepoInspection,
     }) || obfuscation.detected;
   const invokeTimeoutMs = Math.max(
     10_000,
