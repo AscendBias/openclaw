@@ -84,12 +84,12 @@ describe("buildBootstrapContextFiles", () => {
     expect(warnings.length).toBeGreaterThanOrEqual(0);
   });
 
-  it("keeps content under the default limit", () => {
+  it("caps AGENTS.md to the dedicated bootstrap ceiling", () => {
     const long = "a".repeat(DEFAULT_BOOTSTRAP_MAX_CHARS - 10);
     const files = [makeFile({ content: long })];
     const [result] = buildBootstrapContextFiles(files);
-    expect(result?.content).toBe(long);
-    expect(result?.content).not.toContain("[...truncated, read AGENTS.md for full content...]");
+    expect(result?.content).toContain("[...truncated, read AGENTS.md for full content...]");
+    expect(result?.content.length).toBeLessThan(long.length);
   });
 
   it("keeps total injected bootstrap characters under the new default total cap", () => {

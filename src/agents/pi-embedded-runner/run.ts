@@ -252,6 +252,35 @@ function buildErrorAgentMeta(params: {
   };
 }
 
+const SIMPLE_REPO_INSPECTION_TIMEOUT_MS = 90_000;
+
+export function isSimpleRepoInspectionPrompt(prompt: string): boolean {
+  const normalized = prompt.trim().toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+  const commandOnlyPrompt =
+    normalized.includes("do not guess") &&
+    normalized.includes("run only this command in the workspace repo:");
+  const repoFileLookupPrompt =
+    normalized.includes("use actual repo files only") && normalized.includes("which file contains");
+  return commandOnlyPrompt || repoFileLookupPrompt;
+}
+
+export function resolveAttemptThinkLevel(params: {
+  prompt: string;
+  requested: ThinkLevel;
+}): ThinkLevel {
+  return isSimpleRepoInspectionPrompt(params.prompt) ? "off" : params.requested;
+}
+
+export function resolveAttemptTimeoutMs(params: { prompt: string; requested: number }): number {
+  if (!isSimpleRepoInspectionPrompt(params.prompt)) {
+    return params.requested;
+  }
+  return Math.max(1, Math.min(params.requested, SIMPLE_REPO_INSPECTION_TIMEOUT_MS));
+}
+
 export async function runEmbeddedPiAgent(
   params: RunEmbeddedPiAgentParams,
 ): Promise<EmbeddedPiRunResult> {
@@ -435,8 +464,15 @@ export async function runEmbeddedPiAgent(
           : [undefined];
       let profileIndex = 0;
 
-      const initialThinkLevel = params.thinkLevel ?? "off";
+      const initialThinkLevel = resolveAttemptThinkLevel({
+        prompt: params.prompt,
+        requested: params.thinkLevel ?? "off",
+      });
       let thinkLevel = initialThinkLevel;
+      const timeoutMs = resolveAttemptTimeoutMs({
+        prompt: params.prompt,
+        requested: params.timeoutMs,
+      });
       const attemptedThinking = new Set<ThinkLevel>();
       let apiKeyInfo: ApiKeyInfo | null = null;
       let lastProfileId: string | undefined;
@@ -894,7 +930,7 @@ export async function runEmbeddedPiAgent(
             toolResultFormat: resolvedToolResultFormat,
             execOverrides: params.execOverrides,
             bashElevated: params.bashElevated,
-            timeoutMs: params.timeoutMs,
+            timeoutMs,
             runId: params.runId,
             abortSignal: params.abortSignal,
             shouldEmitToolResult: params.shouldEmitToolResult,
