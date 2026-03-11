@@ -17,6 +17,7 @@ import {
 } from "../infra/exec-approvals.js";
 import { detectCommandObfuscation } from "../infra/exec-obfuscation-detect.js";
 import type { SafeBinProfile } from "../infra/exec-safe-bin-policy.js";
+import { isTrustedRepoInspectionCommand } from "../infra/exec-trusted-repo-inspection.js";
 import { logInfo } from "../logger.js";
 import { markBackgrounded, tail } from "./bash-process-registry.js";
 import { sendExecApprovalFollowup } from "./bash-tools.exec-approval-followup.js";
@@ -94,6 +95,11 @@ export async function processGatewayAllowlist(
   const analysisOk = allowlistEval.analysisOk;
   const allowlistSatisfied =
     hostSecurity === "allowlist" && analysisOk ? allowlistEval.allowlistSatisfied : false;
+  const trustedRepoInspection =
+    hostSecurity === "allowlist" && analysisOk
+      ? isTrustedRepoInspectionCommand(allowlistEval.segments)
+      : false;
+  const effectiveAllowlistSatisfied = allowlistSatisfied || trustedRepoInspection;
   let enforcedCommand: string | undefined;
   if (hostSecurity === "allowlist" && analysisOk && allowlistSatisfied) {
     const enforced = buildEnforcedShellCommand({
@@ -134,7 +140,7 @@ export async function processGatewayAllowlist(
       ask: hostAsk,
       security: hostSecurity,
       analysisOk,
-      allowlistSatisfied,
+      allowlistSatisfied: effectiveAllowlistSatisfied,
     }) ||
     requiresHeredocApproval ||
     obfuscation.detected;
@@ -224,7 +230,7 @@ export async function processGatewayAllowlist(
       let deniedReason = baseDecision.deniedReason;
 
       if (baseDecision.timedOut && askFallback === "allowlist") {
-        if (!analysisOk || !allowlistSatisfied) {
+        if (!analysisOk || !effectiveAllowlistSatisfied) {
           deniedReason = "approval-timeout (allowlist-miss)";
         } else {
           approvedByAsk = true;
@@ -248,7 +254,11 @@ export async function processGatewayAllowlist(
         }
       }
 
-      if (hostSecurity === "allowlist" && (!analysisOk || !allowlistSatisfied) && !approvedByAsk) {
+      if (
+        hostSecurity === "allowlist" &&
+        (!analysisOk || !effectiveAllowlistSatisfied) &&
+        !approvedByAsk
+      ) {
         deniedReason = deniedReason ?? "allowlist-miss";
       }
 
@@ -369,7 +379,7 @@ export async function processGatewayAllowlist(
     };
   }
 
-  if (hostSecurity === "allowlist" && (!analysisOk || !allowlistSatisfied)) {
+  if (hostSecurity === "allowlist" && (!analysisOk || !effectiveAllowlistSatisfied)) {
     throw new Error("exec denied: allowlist miss");
   }
 
