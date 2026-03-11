@@ -10,8 +10,9 @@ import {
 import { resolveUserPath } from "../utils.js";
 import { resolveAgentWorkspaceDir, resolveDefaultAgentId } from "./agent-scope.js";
 import { sanitizeForPromptLiteral } from "./sanitize-for-prompt.js";
+import { resolveDefaultAgentWorkspaceDir } from "./workspace.js";
 
-export type WorkspaceFallbackReason = "missing" | "blank" | "invalid_type";
+export type WorkspaceFallbackReason = "missing" | "blank" | "invalid_type" | "stale_default";
 type AgentIdSource = "explicit" | "session_key" | "default";
 
 export type ResolveRunWorkspaceResult = {
@@ -71,6 +72,34 @@ export function redactRunIdentifier(value: string | undefined): string {
   return redactIdentifier(value, { len: 12 });
 }
 
+function normalizePathForComparison(value: string): string {
+  const resolved = resolveUserPath(value);
+  return process.platform === "win32" ? resolved.toLowerCase() : resolved;
+}
+
+function resolveConfiguredWorkspaceOverride(params: {
+  config?: OpenClawConfig;
+  agentId: string;
+}): string | undefined {
+  const cfg = params.config;
+  if (!cfg) {
+    return undefined;
+  }
+  const listedAgentWorkspace = cfg.agents?.list?.find(
+    (entry) => normalizeAgentId(entry?.id) === params.agentId,
+  )?.workspace;
+  if (typeof listedAgentWorkspace === "string" && listedAgentWorkspace.trim()) {
+    return resolveUserPath(listedAgentWorkspace.trim());
+  }
+  if (params.agentId === resolveDefaultAgentId(cfg)) {
+    const defaultsWorkspace = cfg.agents?.defaults?.workspace?.trim();
+    if (defaultsWorkspace) {
+      return resolveUserPath(defaultsWorkspace);
+    }
+  }
+  return undefined;
+}
+
 export function resolveRunWorkspaceDir(params: {
   workspaceDir: unknown;
   sessionKey?: string;
@@ -90,8 +119,29 @@ export function resolveRunWorkspaceDir(params: {
       if (sanitized !== trimmed) {
         logWarn("Control/format characters stripped from workspaceDir (OC-19 hardening).");
       }
+      const resolvedRequested = resolveUserPath(sanitized);
+      const configuredWorkspace = resolveConfiguredWorkspaceOverride({
+        config: params.config,
+        agentId,
+      });
+      const defaultWorkspace = resolveDefaultAgentWorkspaceDir(process.env);
+      if (
+        configuredWorkspace &&
+        normalizePathForComparison(resolvedRequested) ===
+          normalizePathForComparison(defaultWorkspace) &&
+        normalizePathForComparison(resolvedRequested) !==
+          normalizePathForComparison(configuredWorkspace)
+      ) {
+        return {
+          workspaceDir: configuredWorkspace,
+          usedFallback: true,
+          fallbackReason: "stale_default",
+          agentId,
+          agentIdSource,
+        };
+      }
       return {
-        workspaceDir: resolveUserPath(sanitized),
+        workspaceDir: resolvedRequested,
         usedFallback: false,
         agentId,
         agentIdSource,

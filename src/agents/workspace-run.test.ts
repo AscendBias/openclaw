@@ -138,4 +138,24 @@ describe("resolveRunWorkspaceDir", () => {
     expect(result.agentIdSource).toBe("default");
     expect(result.workspaceDir).toBe(path.resolve(fallbackWorkspace));
   });
+
+  it("prefers configured workspace when ingress forwards stale default workspace", () => {
+    const configuredWorkspace = path.join(process.cwd(), "tmp", "workspace-configured-main");
+    const cfg = {
+      agents: {
+        defaults: { workspace: configuredWorkspace },
+      },
+    } satisfies OpenClawConfig;
+
+    const result = resolveRunWorkspaceDir({
+      workspaceDir: resolveDefaultAgentWorkspaceDir(process.env),
+      sessionKey: "agent:main:subagent:test",
+      config: cfg,
+    });
+
+    expect(result.usedFallback).toBe(true);
+    expect(result.fallbackReason).toBe("stale_default");
+    expect(result.agentId).toBe("main");
+    expect(result.workspaceDir).toBe(path.resolve(configuredWorkspace));
+  });
 });
