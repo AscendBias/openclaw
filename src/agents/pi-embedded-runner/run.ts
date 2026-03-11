@@ -276,12 +276,22 @@ function extractCommandSliceAfterPromptMarker(prompt: string): string | undefine
   if (!candidate) {
     return undefined;
   }
-  const dequoted = candidate.replace(/^`+|`+$/g, "").trim();
-  return dequoted.replace(/[.;]+$/g, "").trim();
+  const dequoted = candidate.replace(/^[`"']+|[`"']+$/g, "").trim();
+  return dequoted.replace(/[.;"']+$/g, "").trim();
+}
+
+function extractTrustedRevParseCommandFromPrompt(prompt: string): string | undefined {
+  const normalized = prompt.trim().toLowerCase();
+  if (!normalized.includes("do not guess") || !normalized.includes("workspace repo")) {
+    return undefined;
+  }
+  const trustedCommandMatch = prompt.match(/git\s+rev-parse\s+--(?:abbrev-ref|short)\s+head/i);
+  return trustedCommandMatch ? trustedCommandMatch[0] : undefined;
 }
 
 export function resolveTrustedRepoInspectionArgv(prompt: string): string[] | undefined {
-  const candidate = extractCommandSliceAfterPromptMarker(prompt);
+  const candidate =
+    extractCommandSliceAfterPromptMarker(prompt) ?? extractTrustedRevParseCommandFromPrompt(prompt);
   if (!candidate) {
     return undefined;
   }

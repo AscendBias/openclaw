@@ -7,7 +7,11 @@ import {
   type AgentBootstrapHookContext,
 } from "../hooks/internal-hooks.js";
 import { makeTempWorkspace } from "../test-helpers/workspace.js";
-import { resolveBootstrapContextForRun, resolveBootstrapFilesForRun } from "./bootstrap-files.js";
+import {
+  makeBootstrapWarn,
+  resolveBootstrapContextForRun,
+  resolveBootstrapFilesForRun,
+} from "./bootstrap-files.js";
 import type { WorkspaceBootstrapFile } from "./workspace.js";
 
 function registerExtraBootstrapFileHook() {
@@ -125,5 +129,41 @@ describe("resolveBootstrapContextForRun", () => {
     });
 
     expect(files).toEqual([]);
+  });
+});
+
+describe("makeBootstrapWarn", () => {
+  it("deduplicates recurring truncation warnings per session", () => {
+    const warnings: string[] = [];
+    const warn = makeBootstrapWarn({
+      sessionLabel: "agent:test:main",
+      warn: (message) => warnings.push(message),
+    });
+
+    warn?.(
+      "workspace bootstrap file AGENTS.md is 30000 chars (limit 20000); truncating in injected context",
+    );
+    warn?.(
+      "workspace bootstrap file AGENTS.md is 30000 chars (limit 20000); truncating in injected context",
+    );
+
+    expect(warnings).toHaveLength(1);
+  });
+
+  it("keeps non-deduped warning messages", () => {
+    const warnings: string[] = [];
+    const warn = makeBootstrapWarn({
+      sessionLabel: "agent:test:main",
+      warn: (message) => warnings.push(message),
+    });
+
+    warn?.(
+      'skipping bootstrap file "EXTRA.md" — missing or invalid "path" field (hook may have used "filePath" instead)',
+    );
+    warn?.(
+      'skipping bootstrap file "EXTRA.md" — missing or invalid "path" field (hook may have used "filePath" instead)',
+    );
+
+    expect(warnings).toHaveLength(2);
   });
 });
