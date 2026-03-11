@@ -306,6 +306,28 @@ describe("exec approvals", () => {
     expect(calls).not.toContain("exec.approval.waitDecision");
   });
 
+  it("skips approval for trusted git rev-parse repo inspection even when ask=always", async () => {
+    const calls: string[] = [];
+    vi.mocked(callGatewayTool).mockImplementation(async (method) => {
+      calls.push(method);
+      return { ok: true };
+    });
+
+    const tool = createExecTool({
+      host: "gateway",
+      security: "allowlist",
+      ask: "always",
+      approvalRunningNoticeMs: 0,
+    });
+
+    const result = await tool.execute("call3e", {
+      command: "git rev-parse --short HEAD",
+    });
+    expect(result.details.status).toBe("completed");
+    expect(calls).not.toContain("exec.approval.request");
+    expect(calls).not.toContain("exec.approval.waitDecision");
+  });
+
   it("requires approval for elevated ask when allowlist misses", async () => {
     const calls: string[] = [];
     let resolveApproval: (() => void) | undefined;

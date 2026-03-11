@@ -96,9 +96,7 @@ export async function processGatewayAllowlist(
   const allowlistSatisfied =
     hostSecurity === "allowlist" && analysisOk ? allowlistEval.allowlistSatisfied : false;
   const trustedRepoInspection =
-    hostSecurity === "allowlist" && analysisOk
-      ? isTrustedRepoInspectionCommand(allowlistEval.segments)
-      : false;
+    analysisOk && isTrustedRepoInspectionCommand(allowlistEval.segments);
   const effectiveAllowlistSatisfied = allowlistSatisfied || trustedRepoInspection;
   let enforcedCommand: string | undefined;
   if (hostSecurity === "allowlist" && analysisOk && allowlistSatisfied) {
@@ -144,13 +142,14 @@ export async function processGatewayAllowlist(
     }) ||
     requiresHeredocApproval ||
     obfuscation.detected;
+  const shouldBypassApproval = trustedRepoInspection && !obfuscation.detected;
   if (requiresHeredocApproval) {
     params.warnings.push(
       "Warning: heredoc execution requires explicit approval in allowlist mode.",
     );
   }
 
-  if (requiresAsk) {
+  if (requiresAsk && !shouldBypassApproval) {
     const {
       approvalId,
       approvalSlug,
