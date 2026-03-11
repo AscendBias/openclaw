@@ -26,6 +26,16 @@ describe("embedded run simple repo inspection fast path", () => {
       "HEAD",
     ]);
   });
+  it("extracts trusted argv when strict prompt omits the command marker", () => {
+    const prompt =
+      "Do not guess. In the workspace repo, run git rev-parse --abbrev-ref HEAD and return only the output.";
+    expect(resolveTrustedRepoInspectionArgv(prompt)).toEqual([
+      "git",
+      "rev-parse",
+      "--abbrev-ref",
+      "HEAD",
+    ]);
+  });
 
   it("rejects non-trusted commands in strict command prompt shape", () => {
     const prompt =

@@ -16,6 +16,17 @@ import {
 export type BootstrapContextMode = "full" | "lightweight";
 export type BootstrapContextRunKind = "default" | "heartbeat" | "cron";
 
+const BOOTSTRAP_WARNING_ONCE_PREFIXES = [
+  "workspace bootstrap file ",
+  "remaining bootstrap budget is ",
+] as const;
+const bootstrapWarningSignaturesSeen = new Set<string>();
+
+function shouldDedupBootstrapWarning(message: string): boolean {
+  const normalized = message.trim().toLowerCase();
+  return BOOTSTRAP_WARNING_ONCE_PREFIXES.some((prefix) => normalized.startsWith(prefix));
+}
+
 export function makeBootstrapWarn(params: {
   sessionLabel: string;
   warn?: (message: string) => void;
@@ -23,7 +34,16 @@ export function makeBootstrapWarn(params: {
   if (!params.warn) {
     return undefined;
   }
-  return (message: string) => params.warn?.(`${message} (sessionKey=${params.sessionLabel})`);
+  return (message: string) => {
+    const signature = `${params.sessionLabel}::${message}`;
+    if (shouldDedupBootstrapWarning(message) && bootstrapWarningSignaturesSeen.has(signature)) {
+      return;
+    }
+    if (shouldDedupBootstrapWarning(message)) {
+      bootstrapWarningSignaturesSeen.add(signature);
+    }
+    params.warn?.(`${message} (sessionKey=${params.sessionLabel})`);
+  };
 }
 
 function sanitizeBootstrapFiles(
