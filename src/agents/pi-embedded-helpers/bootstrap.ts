@@ -85,6 +85,7 @@ export function stripThoughtSignatures<T>(
 export const DEFAULT_BOOTSTRAP_MAX_CHARS = 20_000;
 export const DEFAULT_BOOTSTRAP_TOTAL_MAX_CHARS = 150_000;
 export const DEFAULT_BOOTSTRAP_PROMPT_TRUNCATION_WARNING_MODE = "once";
+const AGENTS_BOOTSTRAP_MAX_CHARS = 8_000;
 const MIN_BOOTSTRAP_FILE_BUDGET_CHARS = 64;
 const BOOTSTRAP_HEAD_RATIO = 0.7;
 const BOOTSTRAP_TAIL_RATIO = 0.2;
@@ -284,7 +285,9 @@ export function buildBootstrapContextFiles(
       );
       break;
     }
-    const fileMaxChars = Math.max(1, Math.min(maxChars, remainingTotalChars));
+    const perFileCeiling =
+      file.name === "AGENTS.md" ? Math.min(maxChars, AGENTS_BOOTSTRAP_MAX_CHARS) : maxChars;
+    const fileMaxChars = Math.max(1, Math.min(perFileCeiling, remainingTotalChars));
     const rawContent = file.content ?? "";
     const prioritizedAgentsContent =
       file.name === "AGENTS.md" && rawContent.length > fileMaxChars
