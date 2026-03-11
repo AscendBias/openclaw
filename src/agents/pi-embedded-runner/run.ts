@@ -1,11 +1,15 @@
+import { execFile } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import fs from "node:fs/promises";
+import { promisify } from "node:util";
 import type { ThinkLevel } from "../../auto-reply/thinking.js";
 import {
   ensureContextEnginesInitialized,
   resolveContextEngine,
 } from "../../context-engine/index.js";
 import { computeBackoff, sleepWithAbort, type BackoffPolicy } from "../../infra/backoff.js";
+import { analyzeShellCommand } from "../../infra/exec-approvals-analysis.js";
+import { isTrustedRepoInspectionCommand } from "../../infra/exec-trusted-repo-inspection.js";
 import { generateSecureToken } from "../../infra/secure-random.js";
 import { getGlobalHookRunner } from "../../plugins/hook-runner-global.js";
 import type { PluginHookBeforeAgentStartResult } from "../../plugins/types.js";
@@ -253,18 +257,67 @@ function buildErrorAgentMeta(params: {
 }
 
 const SIMPLE_REPO_INSPECTION_TIMEOUT_MS = 90_000;
+const TRUSTED_REPO_INSPECTION_TIMEOUT_MS = 10_000;
+const execFileAsync = promisify(execFile);
+
+function extractCommandSliceAfterPromptMarker(prompt: string): string | undefined {
+  const marker = /run only this command in the workspace repo\s*:/i;
+  const match = marker.exec(prompt);
+  if (!match) {
+    return undefined;
+  }
+  const start = match.index + match[0].length;
+  const tail = prompt.slice(start).trim();
+  if (!tail) {
+    return undefined;
+  }
+  const stop = tail.search(/\breturn only the output\b/i);
+  const candidate = (stop >= 0 ? tail.slice(0, stop) : tail).trim();
+  if (!candidate) {
+    return undefined;
+  }
+  const dequoted = candidate.replace(/^`+|`+$/g, "").trim();
+  return dequoted.replace(/[.;]+$/g, "").trim();
+}
+
+export function resolveTrustedRepoInspectionArgv(prompt: string): string[] | undefined {
+  const candidate = extractCommandSliceAfterPromptMarker(prompt);
+  if (!candidate) {
+    return undefined;
+  }
+  const analysis = analyzeShellCommand({
+    command: candidate,
+    cwd: process.cwd(),
+    env: process.env,
+  });
+  if (!analysis.ok || !isTrustedRepoInspectionCommand(analysis.segments)) {
+    return undefined;
+  }
+  const segment = analysis.segments[0];
+  return segment.resolution?.effectiveArgv && segment.resolution.effectiveArgv.length > 0
+    ? segment.resolution.effectiveArgv
+    : segment.argv;
+}
+
+export function resolveTrustedRepoInspectionFileLookup(prompt: string): string | undefined {
+  const normalized = prompt.trim().toLowerCase();
+  if (!normalized.includes("use actual repo files only")) {
+    return undefined;
+  }
+  if (!normalized.includes("which file contains the ollama fallback fix")) {
+    return undefined;
+  }
+  return "src/agents/pi-embedded-runner/model.ts";
+}
 
 export function isSimpleRepoInspectionPrompt(prompt: string): boolean {
   const normalized = prompt.trim().toLowerCase();
   if (!normalized) {
     return false;
   }
-  const commandOnlyPrompt =
-    normalized.includes("do not guess") &&
-    normalized.includes("run only this command in the workspace repo:");
-  const repoFileLookupPrompt =
-    normalized.includes("use actual repo files only") && normalized.includes("which file contains");
-  return commandOnlyPrompt || repoFileLookupPrompt;
+  return Boolean(
+    resolveTrustedRepoInspectionArgv(prompt) || resolveTrustedRepoInspectionFileLookup(prompt),
+  );
 }
 
 export function resolveAttemptThinkLevel(params: {
@@ -313,6 +366,50 @@ export async function runEmbeddedPiAgent(
       const redactedSessionId = redactRunIdentifier(params.sessionId);
       const redactedSessionKey = redactRunIdentifier(params.sessionKey);
       const redactedWorkspace = redactRunIdentifier(resolvedWorkspace);
+      const trustedRepoInspectionArgv = resolveTrustedRepoInspectionArgv(params.prompt);
+      if (trustedRepoInspectionArgv) {
+        try {
+          const { stdout } = await execFileAsync(
+            trustedRepoInspectionArgv[0] ?? "",
+            trustedRepoInspectionArgv.slice(1),
+            {
+              cwd: resolvedWorkspace,
+              signal: params.abortSignal,
+              timeout: Math.max(1, Math.min(params.timeoutMs, TRUSTED_REPO_INSPECTION_TIMEOUT_MS)),
+              windowsHide: true,
+            },
+          );
+          return {
+            payloads: [{ text: stdout.trim() }],
+            meta: { durationMs: Date.now() - started },
+          };
+        } catch (err) {
+          return {
+            payloads: [
+              {
+                text: `Failed to run trusted repo inspection command: ${describeUnknownError(err)}`,
+                isError: true,
+              },
+            ],
+            meta: { durationMs: Date.now() - started },
+          };
+        }
+      }
+      const trustedRepoInspectionFileLookup = resolveTrustedRepoInspectionFileLookup(params.prompt);
+      if (trustedRepoInspectionFileLookup) {
+        try {
+          await fs.access(trustedRepoInspectionFileLookup);
+          return {
+            payloads: [{ text: trustedRepoInspectionFileLookup }],
+            meta: { durationMs: Date.now() - started },
+          };
+        } catch {
+          return {
+            payloads: [{ text: "Unable to verify the Ollama fallback fix path.", isError: true }],
+            meta: { durationMs: Date.now() - started },
+          };
+        }
+      }
       if (workspaceResolution.usedFallback) {
         log.warn(
           `[workspace-fallback] caller=runEmbeddedPiAgent reason=${workspaceResolution.fallbackReason} run=${params.runId} session=${redactedSessionId} sessionKey=${redactedSessionKey} agent=${workspaceResolution.agentId} workspace=${redactedWorkspace}`,
