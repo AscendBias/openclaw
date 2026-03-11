@@ -37,6 +37,40 @@ describe("embedded run simple repo inspection fast path", () => {
     ]);
   });
 
+  it("prefers the latest strict command marker when prompt includes prior examples", () => {
+    const prompt = [
+      "Context from previous run:",
+      "Do not guess. Run only this command in the workspace repo: git status. Return only the output.",
+      "Now handle this user request:",
+      "Do not guess. Run only this command in the workspace repo: git rev-parse --abbrev-ref HEAD. Return only the output.",
+    ].join("\n");
+
+    expect(resolveTrustedRepoInspectionArgv(prompt)).toEqual([
+      "git",
+      "rev-parse",
+      "--abbrev-ref",
+      "HEAD",
+    ]);
+  });
+
+  it("extracts trusted command from quoted multiline strict prompts", () => {
+    const prompt = [
+      "Do not guess.",
+      "Run only this command in the workspace repo:",
+      "```",
+      "git rev-parse --short HEAD",
+      "```",
+      "Return only the output.",
+    ].join("\n");
+
+    expect(resolveTrustedRepoInspectionArgv(prompt)).toEqual([
+      "git",
+      "rev-parse",
+      "--short",
+      "HEAD",
+    ]);
+  });
+
   it("rejects non-trusted commands in strict command prompt shape", () => {
     const prompt =
       "Do not guess. Run only this command in the workspace repo: git status. Return only the output.";
