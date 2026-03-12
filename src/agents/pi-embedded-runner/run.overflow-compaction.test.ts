@@ -1,6 +1,8 @@
 import "./run.overflow-compaction.mocks.shared.js";
+import { execFileSync } from "node:child_process";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { pickFallbackThinkingLevel } from "../pi-embedded-helpers.js";
+import { resolveModel } from "./model.js";
 import { runEmbeddedPiAgent } from "./run.js";
 import {
   makeAttemptResult,
@@ -18,11 +20,62 @@ import {
   overflowBaseRunParams,
 } from "./run.overflow-compaction.shared-test.js";
 const mockedPickFallbackThinkingLevel = vi.mocked(pickFallbackThinkingLevel);
+const mockedResolveModel = vi.mocked(resolveModel);
 
 describe("runEmbeddedPiAgent overflow compaction trigger routing", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockedGlobalHookRunner.hasHooks.mockImplementation(() => false);
+  });
+
+  it("short-circuits strict trusted branch prompt before embedded/bootstrap/model flow", async () => {
+    const result = await runEmbeddedPiAgent({
+      ...overflowBaseRunParams,
+      workspaceDir: process.cwd(),
+      prompt:
+        "Do not guess. Run only this command in the workspace repo: git rev-parse --abbrev-ref HEAD. Return only the output.",
+    });
+
+    const expectedBranch = execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
+      cwd: process.cwd(),
+      encoding: "utf8",
+    }).trim();
+    expect(result.payloads).toEqual([{ text: expectedBranch }]);
+    expect(mockedRunEmbeddedAttempt).not.toHaveBeenCalled();
+    expect(mockedResolveModel).not.toHaveBeenCalled();
+  });
+
+  it("short-circuits strict trusted short-hash prompt and fails plain on exec error", async () => {
+    const success = await runEmbeddedPiAgent({
+      ...overflowBaseRunParams,
+      workspaceDir: process.cwd(),
+      prompt:
+        "Do not guess. Run only this command in the workspace repo: git rev-parse --short HEAD. Return only the output.",
+    });
+
+    const expectedShort = execFileSync("git", ["rev-parse", "--short", "HEAD"], {
+      cwd: process.cwd(),
+      encoding: "utf8",
+    }).trim();
+    expect(success.payloads).toEqual([{ text: expectedShort }]);
+    expect(mockedRunEmbeddedAttempt).not.toHaveBeenCalled();
+    expect(mockedResolveModel).not.toHaveBeenCalled();
+
+    const failure = await runEmbeddedPiAgent({
+      ...overflowBaseRunParams,
+      workspaceDir: "/tmp/openclaw-missing-workspace",
+      prompt:
+        "Do not guess. Run only this command in the workspace repo: git rev-parse --short HEAD. Return only the output.",
+    });
+
+    expect(failure.payloads).toEqual([
+      {
+        text: "Unable to run the requested workspace repo command.",
+        isError: true,
+      },
+    ]);
+    expect(mockedRunEmbeddedAttempt).not.toHaveBeenCalled();
+    expect(mockedResolveModel).not.toHaveBeenCalled();
   });
 
   it("passes precomputed legacy before_agent_start result into the attempt", async () => {
