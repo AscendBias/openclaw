@@ -49,4 +49,36 @@ describe("isTrustedRepoInspectionCommand", () => {
       ]),
     ).toBe(false);
   });
+
+  it("allows trusted git rev-parse wrapped in bash -lc", () => {
+    expect(
+      isTrustedRepoInspectionCommand([
+        {
+          raw: "bash -lc 'git rev-parse --short HEAD'",
+          argv: ["bash", "-lc", "git rev-parse --short HEAD"],
+          resolution: {
+            rawExecutable: "bash",
+            executableName: "bash",
+            effectiveArgv: ["bash", "-lc", "git rev-parse --short HEAD"],
+          },
+        },
+      ]),
+    ).toBe(true);
+  });
+
+  it("rejects wrapped shell commands that are not trusted repo inspection", () => {
+    expect(
+      isTrustedRepoInspectionCommand([
+        {
+          raw: "bash -lc 'git status'",
+          argv: ["bash", "-lc", "git status"],
+          resolution: {
+            rawExecutable: "bash",
+            executableName: "bash",
+            effectiveArgv: ["bash", "-lc", "git status"],
+          },
+        },
+      ]),
+    ).toBe(false);
+  });
 });

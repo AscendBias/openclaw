@@ -34,6 +34,8 @@ vi.mock("./session.js", () => ({
 }));
 
 const { getReplyFromConfig } = await import("./get-reply.js");
+const workspaceModule = await import("../../agents/workspace.js");
+const typingModule = await import("./typing.js");
 
 function buildCtx(overrides: Partial<MsgContext> = {}): MsgContext {
   return {
@@ -102,6 +104,8 @@ describe("getReplyFromConfig trusted repo inspection", () => {
     expect(mocks.applyMediaUnderstanding).not.toHaveBeenCalled();
     expect(mocks.applyLinkUnderstanding).not.toHaveBeenCalled();
     expect(mocks.initSessionState).not.toHaveBeenCalled();
+    expect(workspaceModule.ensureAgentWorkspace).not.toHaveBeenCalled();
+    expect(typingModule.createTypingController).not.toHaveBeenCalled();
   });
 
   it("returns a short plain failure and never enters full run on exec error", async () => {

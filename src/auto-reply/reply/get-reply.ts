@@ -72,6 +72,29 @@ export async function getReplyFromConfig(
     sessionKey: agentSessionKey,
     config: cfg,
   });
+  const finalized = finalizeInboundContext(ctx);
+  const strictPrompt =
+    finalized.BodyForCommands ?? finalized.CommandBody ?? finalized.RawBody ?? finalized.Body ?? "";
+  const trustedRepoInspection = resolveTrustedRepoInspectionPrompt(strictPrompt);
+  if (trustedRepoInspection?.kind === "exec") {
+    const trustedWorkspaceDir =
+      resolveAgentWorkspaceDir(cfg, agentId) ?? DEFAULT_AGENT_WORKSPACE_DIR;
+    try {
+      const output = await runTrustedRepoInspectionExec({
+        argv: trustedRepoInspection.argv,
+        cwd: trustedWorkspaceDir,
+        timeoutMs: 10_000,
+        abortSignal: opts?.abortSignal,
+      });
+      return { text: output };
+    } catch {
+      return { text: "Unable to run the requested workspace repo command.", isError: true };
+    }
+  }
+  if (trustedRepoInspection?.kind === "file_lookup") {
+    return { text: trustedRepoInspection.path };
+  }
+
   const mergedSkillFilter = mergeSkillFilters(
     opts?.skillFilter,
     resolveAgentSkillsFilter(cfg, agentId),
@@ -126,27 +149,6 @@ export async function getReplyFromConfig(
     log: defaultRuntime.log,
   });
   opts?.onTypingController?.(typing);
-
-  const finalized = finalizeInboundContext(ctx);
-  const strictPrompt =
-    finalized.BodyForCommands ?? finalized.CommandBody ?? finalized.RawBody ?? finalized.Body ?? "";
-  const trustedRepoInspection = resolveTrustedRepoInspectionPrompt(strictPrompt);
-  if (trustedRepoInspection?.kind === "exec") {
-    try {
-      const output = await runTrustedRepoInspectionExec({
-        argv: trustedRepoInspection.argv,
-        cwd: workspaceDir,
-        timeoutMs: 10_000,
-        abortSignal: resolvedOpts?.abortSignal,
-      });
-      return { text: output };
-    } catch {
-      return { text: "Unable to run the requested workspace repo command.", isError: true };
-    }
-  }
-  if (trustedRepoInspection?.kind === "file_lookup") {
-    return { text: trustedRepoInspection.path };
-  }
 
   if (!isFastTestEnv) {
     await applyMediaUnderstanding({
