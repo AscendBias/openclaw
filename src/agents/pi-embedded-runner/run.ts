@@ -1,16 +1,12 @@
-import { execFile } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { promisify } from "node:util";
 import type { ThinkLevel } from "../../auto-reply/thinking.js";
 import {
   ensureContextEnginesInitialized,
   resolveContextEngine,
 } from "../../context-engine/index.js";
 import { computeBackoff, sleepWithAbort, type BackoffPolicy } from "../../infra/backoff.js";
-import { analyzeShellCommand } from "../../infra/exec-approvals-analysis.js";
-import { isTrustedRepoInspectionCommand } from "../../infra/exec-trusted-repo-inspection.js";
 import { generateSecureToken } from "../../infra/secure-random.js";
 import { getGlobalHookRunner } from "../../plugins/hook-runner-global.js";
 import type { PluginHookBeforeAgentStartResult } from "../../plugins/types.js";
@@ -60,6 +56,11 @@ import {
   type FailoverReason,
 } from "../pi-embedded-helpers.js";
 import { ensureRuntimePluginsLoaded } from "../runtime-plugins.js";
+import {
+  resolveTrustedRepoInspectionArgv,
+  resolveTrustedRepoInspectionFileLookup,
+  runTrustedRepoInspectionExec,
+} from "../trusted-repo-inspection.js";
 import { derivePromptTokens, normalizeUsage, type UsageLike } from "../usage.js";
 import { redactRunIdentifier, resolveRunWorkspaceDir } from "../workspace-run.js";
 import { resolveGlobalLane, resolveSessionLane } from "./lanes.js";
@@ -259,102 +260,11 @@ function buildErrorAgentMeta(params: {
 
 const SIMPLE_REPO_INSPECTION_TIMEOUT_MS = 90_000;
 const TRUSTED_REPO_INSPECTION_TIMEOUT_MS = 10_000;
-const execFileAsync = promisify(execFile);
 
-function extractCommandSlicesAfterPromptMarker(prompt: string): string[] {
-  const marker = /run only this command in the workspace repo\s*:/gi;
-  let markerMatch: RegExpExecArray | null;
-  const commands: string[] = [];
-  while ((markerMatch = marker.exec(prompt)) !== null) {
-    const start = markerMatch.index + markerMatch[0].length;
-    const tail = prompt.slice(start).trim();
-    if (!tail) {
-      continue;
-    }
-    const stop = tail.search(/\breturn only the output\b/i);
-    const candidate = (stop >= 0 ? tail.slice(0, stop) : tail).trim();
-    if (!candidate) {
-      continue;
-    }
-    const commandLine =
-      candidate
-        .split(/\r?\n/)
-        .map((line) => line.replace(/^[\s`>*-]+|[\s`]+$/g, ""))
-        .find((line) => /\bgit\s+rev-parse\b/i.test(line)) ?? candidate;
-    const dequoted = commandLine.replace(/^[`"']+|[`"']+$/g, "").trim();
-    const normalized = dequoted.replace(/[.;"']+$/g, "").trim();
-    if (normalized) {
-      commands.push(normalized);
-    }
-  }
-  return commands;
-}
-
-function extractTrustedRevParseCommandFromPrompt(prompt: string): string | undefined {
-  const normalized = prompt.trim().toLowerCase();
-  if (!normalized.includes("do not guess") || !normalized.includes("workspace repo")) {
-    return undefined;
-  }
-  const trustedCommandMatches = prompt.matchAll(
-    /git\s+rev-parse\s+--(?:abbrev-ref|short(?:=\d+)?)\s+head\b/gi,
-  );
-  let lastMatch: string | undefined;
-  for (const match of trustedCommandMatches) {
-    lastMatch = match[0];
-  }
-  return lastMatch;
-}
-
-export function resolveTrustedRepoInspectionArgv(prompt: string): string[] | undefined {
-  const markedCandidates = extractCommandSlicesAfterPromptMarker(prompt);
-  for (let i = markedCandidates.length - 1; i >= 0; i -= 1) {
-    const candidate = markedCandidates[i];
-    if (!candidate) {
-      continue;
-    }
-    const analysis = analyzeShellCommand({
-      command: candidate,
-      cwd: process.cwd(),
-      env: process.env,
-    });
-    if (!analysis.ok || !isTrustedRepoInspectionCommand(analysis.segments)) {
-      continue;
-    }
-    const segment = analysis.segments[0];
-    return segment.resolution?.effectiveArgv && segment.resolution.effectiveArgv.length > 0
-      ? segment.resolution.effectiveArgv
-      : segment.argv;
-  }
-
-  const fallbackCandidate = extractTrustedRevParseCommandFromPrompt(prompt);
-  if (!fallbackCandidate) {
-    return undefined;
-  }
-  const fallbackAnalysis = analyzeShellCommand({
-    command: fallbackCandidate,
-    cwd: process.cwd(),
-    env: process.env,
-  });
-  if (!fallbackAnalysis.ok || !isTrustedRepoInspectionCommand(fallbackAnalysis.segments)) {
-    return undefined;
-  }
-  const fallbackSegment = fallbackAnalysis.segments[0];
-  return fallbackSegment.resolution?.effectiveArgv &&
-    fallbackSegment.resolution.effectiveArgv.length > 0
-    ? fallbackSegment.resolution.effectiveArgv
-    : fallbackSegment.argv;
-}
-
-export function resolveTrustedRepoInspectionFileLookup(prompt: string): string | undefined {
-  const normalized = prompt.trim().toLowerCase();
-  if (!normalized.includes("use actual repo files only")) {
-    return undefined;
-  }
-  if (!normalized.includes("which file contains the ollama fallback fix")) {
-    return undefined;
-  }
-  return "src/agents/pi-embedded-runner/model.ts";
-}
+export {
+  resolveTrustedRepoInspectionArgv,
+  resolveTrustedRepoInspectionFileLookup,
+} from "../trusted-repo-inspection.js";
 
 export function isSimpleRepoInspectionPrompt(prompt: string): boolean {
   const normalized = prompt.trim().toLowerCase();
@@ -415,16 +325,12 @@ export async function runEmbeddedPiAgent(
       const trustedRepoInspectionArgv = resolveTrustedRepoInspectionArgv(params.prompt);
       if (trustedRepoInspectionArgv) {
         try {
-          const { stdout } = await execFileAsync(
-            trustedRepoInspectionArgv[0] ?? "",
-            trustedRepoInspectionArgv.slice(1),
-            {
-              cwd: resolvedWorkspace,
-              signal: params.abortSignal,
-              timeout: Math.max(1, Math.min(params.timeoutMs, TRUSTED_REPO_INSPECTION_TIMEOUT_MS)),
-              windowsHide: true,
-            },
-          );
+          const stdout = await runTrustedRepoInspectionExec({
+            argv: trustedRepoInspectionArgv,
+            cwd: resolvedWorkspace,
+            abortSignal: params.abortSignal,
+            timeoutMs: Math.max(1, Math.min(params.timeoutMs, TRUSTED_REPO_INSPECTION_TIMEOUT_MS)),
+          });
           return {
             payloads: [{ text: stdout.trim() }],
             meta: { durationMs: Date.now() - started },

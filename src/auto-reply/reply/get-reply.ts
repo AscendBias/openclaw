@@ -6,6 +6,10 @@ import {
 } from "../../agents/agent-scope.js";
 import { resolveModelRefFromString } from "../../agents/model-selection.js";
 import { resolveAgentTimeoutMs } from "../../agents/timeout.js";
+import {
+  resolveTrustedRepoInspectionPrompt,
+  runTrustedRepoInspectionExec,
+} from "../../agents/trusted-repo-inspection.js";
 import { DEFAULT_AGENT_WORKSPACE_DIR, ensureAgentWorkspace } from "../../agents/workspace.js";
 import { resolveChannelModelOverride } from "../../channels/model-overrides.js";
 import { type OpenClawConfig, loadConfig } from "../../config/config.js";
@@ -124,6 +128,25 @@ export async function getReplyFromConfig(
   opts?.onTypingController?.(typing);
 
   const finalized = finalizeInboundContext(ctx);
+  const strictPrompt =
+    finalized.BodyForCommands ?? finalized.CommandBody ?? finalized.RawBody ?? finalized.Body ?? "";
+  const trustedRepoInspection = resolveTrustedRepoInspectionPrompt(strictPrompt);
+  if (trustedRepoInspection?.kind === "exec") {
+    try {
+      const output = await runTrustedRepoInspectionExec({
+        argv: trustedRepoInspection.argv,
+        cwd: workspaceDir,
+        timeoutMs: 10_000,
+        abortSignal: resolvedOpts?.abortSignal,
+      });
+      return { text: output };
+    } catch {
+      return { text: "Unable to run the requested workspace repo command.", isError: true };
+    }
+  }
+  if (trustedRepoInspection?.kind === "file_lookup") {
+    return { text: trustedRepoInspection.path };
+  }
 
   if (!isFastTestEnv) {
     await applyMediaUnderstanding({
