@@ -261,10 +261,10 @@ const SIMPLE_REPO_INSPECTION_TIMEOUT_MS = 90_000;
 const TRUSTED_REPO_INSPECTION_TIMEOUT_MS = 10_000;
 const execFileAsync = promisify(execFile);
 
-function extractCommandSliceAfterPromptMarker(prompt: string): string | undefined {
+function extractCommandSlicesAfterPromptMarker(prompt: string): string[] {
   const marker = /run only this command in the workspace repo\s*:/gi;
   let markerMatch: RegExpExecArray | null;
-  let selectedCommand: string | undefined;
+  const commands: string[] = [];
   while ((markerMatch = marker.exec(prompt)) !== null) {
     const start = markerMatch.index + markerMatch[0].length;
     const tail = prompt.slice(start).trim();
@@ -284,12 +284,10 @@ function extractCommandSliceAfterPromptMarker(prompt: string): string | undefine
     const dequoted = commandLine.replace(/^[`"']+|[`"']+$/g, "").trim();
     const normalized = dequoted.replace(/[.;"']+$/g, "").trim();
     if (normalized) {
-      // Prefer the last marker in the prompt so old quoted examples in context
-      // cannot shadow the user's latest strict command.
-      selectedCommand = normalized;
+      commands.push(normalized);
     }
   }
-  return selectedCommand;
+  return commands;
 }
 
 function extractTrustedRevParseCommandFromPrompt(prompt: string): string | undefined {
@@ -308,23 +306,43 @@ function extractTrustedRevParseCommandFromPrompt(prompt: string): string | undef
 }
 
 export function resolveTrustedRepoInspectionArgv(prompt: string): string[] | undefined {
-  const candidate =
-    extractCommandSliceAfterPromptMarker(prompt) ?? extractTrustedRevParseCommandFromPrompt(prompt);
-  if (!candidate) {
+  const markedCandidates = extractCommandSlicesAfterPromptMarker(prompt);
+  for (let i = markedCandidates.length - 1; i >= 0; i -= 1) {
+    const candidate = markedCandidates[i];
+    if (!candidate) {
+      continue;
+    }
+    const analysis = analyzeShellCommand({
+      command: candidate,
+      cwd: process.cwd(),
+      env: process.env,
+    });
+    if (!analysis.ok || !isTrustedRepoInspectionCommand(analysis.segments)) {
+      continue;
+    }
+    const segment = analysis.segments[0];
+    return segment.resolution?.effectiveArgv && segment.resolution.effectiveArgv.length > 0
+      ? segment.resolution.effectiveArgv
+      : segment.argv;
+  }
+
+  const fallbackCandidate = extractTrustedRevParseCommandFromPrompt(prompt);
+  if (!fallbackCandidate) {
     return undefined;
   }
-  const analysis = analyzeShellCommand({
-    command: candidate,
+  const fallbackAnalysis = analyzeShellCommand({
+    command: fallbackCandidate,
     cwd: process.cwd(),
     env: process.env,
   });
-  if (!analysis.ok || !isTrustedRepoInspectionCommand(analysis.segments)) {
+  if (!fallbackAnalysis.ok || !isTrustedRepoInspectionCommand(fallbackAnalysis.segments)) {
     return undefined;
   }
-  const segment = analysis.segments[0];
-  return segment.resolution?.effectiveArgv && segment.resolution.effectiveArgv.length > 0
-    ? segment.resolution.effectiveArgv
-    : segment.argv;
+  const fallbackSegment = fallbackAnalysis.segments[0];
+  return fallbackSegment.resolution?.effectiveArgv &&
+    fallbackSegment.resolution.effectiveArgv.length > 0
+    ? fallbackSegment.resolution.effectiveArgv
+    : fallbackSegment.argv;
 }
 
 export function resolveTrustedRepoInspectionFileLookup(prompt: string): string | undefined {
