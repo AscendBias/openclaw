@@ -210,6 +210,75 @@ export function applyTalkConfigNormalization(config: OpenClawConfig): OpenClawCo
   return normalizeTalkConfig(config);
 }
 
+function normalizeSenderId(value: string | number): string {
+  return String(value).trim();
+}
+
+function resolveExplicitOwnerIds(values: Array<string | number> | undefined): string[] {
+  if (!Array.isArray(values)) {
+    return [];
+  }
+  const deduped = new Set<string>();
+  for (const value of values) {
+    const normalized = normalizeSenderId(value);
+    if (!normalized || normalized === "*") {
+      continue;
+    }
+    deduped.add(normalized);
+  }
+  return [...deduped];
+}
+
+export function applyRuntimeHardeningDefaults(cfg: OpenClawConfig): OpenClawConfig {
+  const telegram = cfg.channels?.telegram;
+  if (!telegram) {
+    return cfg;
+  }
+
+  const ownerIds = resolveExplicitOwnerIds(telegram.allowFrom);
+  const nextTelegram = {
+    ...telegram,
+    dmPolicy: telegram.dmPolicy ?? "pairing",
+    allowFrom: telegram.allowFrom ?? [],
+    groupAllowFrom: telegram.groupAllowFrom ?? [],
+    execApprovals:
+      telegram.execApprovals ??
+      (ownerIds.length > 0
+        ? {
+            enabled: true,
+            approvers: ownerIds,
+            target: "dm" as const,
+          }
+        : undefined),
+  };
+
+  const nextTools = {
+    ...cfg.tools,
+    exec: {
+      ...cfg.tools?.exec,
+      host: cfg.tools?.exec?.host ?? "gateway",
+      security: cfg.tools?.exec?.security ?? "allowlist",
+      ask: cfg.tools?.exec?.ask ?? "on-miss",
+    },
+  };
+
+  const nextCommandsAllowFrom =
+    cfg.commands?.allowFrom ?? (ownerIds.length > 0 ? { telegram: ownerIds } : undefined);
+
+  return {
+    ...cfg,
+    channels: {
+      ...cfg.channels,
+      telegram: nextTelegram,
+    },
+    tools: nextTools,
+    commands: {
+      ...cfg.commands,
+      allowFrom: nextCommandsAllowFrom,
+    },
+  };
+}
+
 export function applyModelDefaults(cfg: OpenClawConfig): OpenClawConfig {
   let mutated = false;
   let nextCfg = cfg;
