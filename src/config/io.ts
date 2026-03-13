@@ -24,6 +24,7 @@ import {
   applyLoggingDefaults,
   applyMessageDefaults,
   applyModelDefaults,
+  applyRuntimeHardeningDefaults,
   applySessionDefaults,
   applyTalkConfigNormalization,
   applyTalkApiKey,
@@ -770,11 +771,15 @@ export function createConfigIO(overrides: ConfigIoDeps = {}) {
       }
       warnIfConfigFromFuture(validated.config, deps.logger);
       const cfg = applyTalkConfigNormalization(
-        applyModelDefaults(
-          applyCompactionDefaults(
-            applyContextPruningDefaults(
-              applyAgentDefaults(
-                applySessionDefaults(applyLoggingDefaults(applyMessageDefaults(validated.config))),
+        applyRuntimeHardeningDefaults(
+          applyModelDefaults(
+            applyCompactionDefaults(
+              applyContextPruningDefaults(
+                applyAgentDefaults(
+                  applySessionDefaults(
+                    applyLoggingDefaults(applyMessageDefaults(validated.config)),
+                  ),
+                ),
               ),
             ),
           ),
@@ -862,10 +867,12 @@ export function createConfigIO(overrides: ConfigIoDeps = {}) {
       const hash = hashConfigRaw(null);
       const config = applyTalkApiKey(
         applyTalkConfigNormalization(
-          applyModelDefaults(
-            applyCompactionDefaults(
-              applyContextPruningDefaults(
-                applyAgentDefaults(applySessionDefaults(applyMessageDefaults({}))),
+          applyRuntimeHardeningDefaults(
+            applyModelDefaults(
+              applyCompactionDefaults(
+                applyContextPruningDefaults(
+                  applyAgentDefaults(applySessionDefaults(applyMessageDefaults({}))),
+                ),
               ),
             ),
           ),
@@ -975,9 +982,13 @@ export function createConfigIO(overrides: ConfigIoDeps = {}) {
       const snapshotConfig = normalizeConfigPaths(
         applyTalkApiKey(
           applyTalkConfigNormalization(
-            applyModelDefaults(
-              applyAgentDefaults(
-                applySessionDefaults(applyLoggingDefaults(applyMessageDefaults(validated.config))),
+            applyRuntimeHardeningDefaults(
+              applyModelDefaults(
+                applyAgentDefaults(
+                  applySessionDefaults(
+                    applyLoggingDefaults(applyMessageDefaults(validated.config)),
+                  ),
+                ),
               ),
             ),
           ),
