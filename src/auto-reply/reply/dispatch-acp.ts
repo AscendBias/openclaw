@@ -10,6 +10,7 @@ import {
   resolveSessionIdentityFromMeta,
 } from "../../acp/runtime/session-identity.js";
 import { readAcpSessionEntry } from "../../acp/runtime/session-meta.js";
+import { resolveTrustedRepoInspectionPrompt } from "../../agents/trusted-repo-inspection.js";
 import type { OpenClawConfig } from "../../config/config.js";
 import type { TtsAutoMode } from "../../config/types.tts.js";
 import { logVerbose } from "../../globals.js";
@@ -110,6 +111,14 @@ export function shouldBypassAcpDispatchForCommand(
   if (!candidate) {
     return false;
   }
+
+  // Route deterministic trusted repo inspection prompts through the local fast path
+  // before ACP/model orchestration, so responses come directly from the configured
+  // workspace without approval-card races.
+  if (resolveTrustedRepoInspectionPrompt(candidate)) {
+    return true;
+  }
+
   const allowTextCommands = shouldHandleTextCommands({
     cfg,
     surface: ctx.Surface ?? ctx.Provider ?? "",

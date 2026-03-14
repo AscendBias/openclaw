@@ -87,7 +87,8 @@ vi.mock("../../infra/outbound/session-binding-service.js", () => ({
   }),
 }));
 
-const { tryDispatchAcpReply } = await import("./dispatch-acp.js");
+const { tryDispatchAcpReply, shouldBypassAcpDispatchForCommand } =
+  await import("./dispatch-acp.js");
 const sessionKey = "agent:codex-acp:session-1";
 
 function createDispatcher(): {
@@ -207,6 +208,40 @@ async function dispatchVisibleTurn(onReplyStart: () => void) {
     onReplyStart,
   });
 }
+
+describe("shouldBypassAcpDispatchForCommand", () => {
+  it("bypasses ACP for trusted deterministic workspace repo prompts", () => {
+    const bypass = shouldBypassAcpDispatchForCommand(
+      buildTestCtx({
+        Provider: "telegram",
+        Surface: "telegram",
+        CommandBody:
+          "Do not guess. Run only this command in the workspace repo: git rev-parse --abbrev-ref HEAD. Return only the output.",
+        BodyForCommands:
+          "Do not guess. Run only this command in the workspace repo: git rev-parse --abbrev-ref HEAD. Return only the output.",
+      }),
+      createAcpTestConfig(),
+    );
+
+    expect(bypass).toBe(true);
+  });
+
+  it("does not bypass ACP for untrusted deterministic-looking prompts", () => {
+    const bypass = shouldBypassAcpDispatchForCommand(
+      buildTestCtx({
+        Provider: "telegram",
+        Surface: "telegram",
+        CommandBody:
+          "Do not guess. Run only this command in the workspace repo: git status. Return only the output.",
+        BodyForCommands:
+          "Do not guess. Run only this command in the workspace repo: git status. Return only the output.",
+      }),
+      createAcpTestConfig(),
+    );
+
+    expect(bypass).toBe(false);
+  });
+});
 
 describe("tryDispatchAcpReply", () => {
   beforeEach(() => {
