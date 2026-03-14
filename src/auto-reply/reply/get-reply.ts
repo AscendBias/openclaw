@@ -7,7 +7,7 @@ import {
 import { resolveModelRefFromString } from "../../agents/model-selection.js";
 import { resolveAgentTimeoutMs } from "../../agents/timeout.js";
 import {
-  resolveTrustedRepoInspectionPrompt,
+  resolveTrustedRepoInspectionPromptFromTexts,
   runTrustedRepoInspectionExec,
 } from "../../agents/trusted-repo-inspection.js";
 import { DEFAULT_AGENT_WORKSPACE_DIR, ensureAgentWorkspace } from "../../agents/workspace.js";
@@ -73,9 +73,13 @@ export async function getReplyFromConfig(
     config: cfg,
   });
   const finalized = finalizeInboundContext(ctx);
-  const strictPrompt =
-    finalized.BodyForCommands ?? finalized.CommandBody ?? finalized.RawBody ?? finalized.Body ?? "";
-  const trustedRepoInspection = resolveTrustedRepoInspectionPrompt(strictPrompt);
+  const trustedRepoInspection = resolveTrustedRepoInspectionPromptFromTexts([
+    finalized.BodyForCommands,
+    finalized.CommandBody,
+    finalized.RawBody,
+    finalized.Body,
+    finalized.BodyForAgent,
+  ]);
   if (trustedRepoInspection?.kind === "exec") {
     const trustedWorkspaceDir =
       resolveAgentWorkspaceDir(cfg, agentId) ?? DEFAULT_AGENT_WORKSPACE_DIR;

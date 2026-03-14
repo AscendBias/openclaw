@@ -8,6 +8,10 @@ const execFileAsync = promisify(execFile);
 export const TRUSTED_REPO_INSPECTION_FILE_LOOKUP =
   "src/agents/pi-embedded-runner/model.ts" as const;
 
+function normalizePromptCandidate(prompt: string): string {
+  return prompt.replace(/```(?:[a-z0-9_-]+)?\s*([\s\S]*?)```/gi, "$1").trim();
+}
+
 function extractCommandSlicesAfterPromptMarker(prompt: string): string[] {
   const marker = /run only this command in the workspace repo\s*:/gi;
   let markerMatch: RegExpExecArray | null;
@@ -106,13 +110,25 @@ export function resolveTrustedRepoInspectionFileLookup(prompt: string): string |
 export function resolveTrustedRepoInspectionPrompt(
   prompt: string,
 ): { kind: "exec"; argv: string[] } | { kind: "file_lookup"; path: string } | null {
-  const argv = resolveTrustedRepoInspectionArgv(prompt);
-  if (argv && argv.length > 0) {
-    return { kind: "exec", argv };
-  }
-  const fileLookupPath = resolveTrustedRepoInspectionFileLookup(prompt);
-  if (fileLookupPath) {
-    return { kind: "file_lookup", path: fileLookupPath };
+  return resolveTrustedRepoInspectionPromptFromTexts([prompt]);
+}
+
+export function resolveTrustedRepoInspectionPromptFromTexts(
+  prompts: Array<string | undefined>,
+): { kind: "exec"; argv: string[] } | { kind: "file_lookup"; path: string } | null {
+  for (const rawPrompt of prompts) {
+    const prompt = typeof rawPrompt === "string" ? normalizePromptCandidate(rawPrompt) : "";
+    if (!prompt) {
+      continue;
+    }
+    const argv = resolveTrustedRepoInspectionArgv(prompt);
+    if (argv && argv.length > 0) {
+      return { kind: "exec", argv };
+    }
+    const fileLookupPath = resolveTrustedRepoInspectionFileLookup(prompt);
+    if (fileLookupPath) {
+      return { kind: "file_lookup", path: fileLookupPath };
+    }
   }
   return null;
 }
