@@ -1067,6 +1067,14 @@ export const registerTelegramHandlers = ({
       operation: "answerCallbackQuery",
       runtime,
       fn: answerCallbackQuery,
+      shouldLog: (err) => {
+        const text = String(err).toLowerCase();
+        return !(
+          text.includes("query is too old") ||
+          text.includes("query id is invalid") ||
+          text.includes("response timeout expired")
+        );
+      },
     }).catch(() => {});
     try {
       const data = (callback.data ?? "").trim();
