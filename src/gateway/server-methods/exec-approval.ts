@@ -279,8 +279,14 @@ export function createExecApprovalHandlers(
         respond(false, undefined, errorShape(ErrorCodes.INVALID_REQUEST, "invalid decision"));
         return;
       }
-      const resolvedId = manager.lookupPendingId(p.id);
+      const normalizedInputId = p.id.trim();
+      const resolvedId = manager.lookupPendingId(normalizedInputId);
       if (resolvedId.kind === "none") {
+        const existing = manager.getSnapshot(normalizedInputId);
+        if (existing?.resolvedAtMs !== undefined && existing.decision === decision) {
+          respond(true, { ok: true }, undefined);
+          return;
+        }
         respond(
           false,
           undefined,

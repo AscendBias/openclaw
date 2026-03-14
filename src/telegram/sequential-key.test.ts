@@ -86,6 +86,29 @@ describe("getTelegramSequentialKey", () => {
       { message: mockMessage({ chat: mockChat({ id: 123 }), text: "please do not do that" }) },
       "telegram:123",
     ],
+
+    [
+      {
+        update: {
+          callback_query: {
+            data: "/approve approval-1 allow-once",
+            message: mockMessage({ chat: mockChat({ id: 123, type: "private" }) }),
+          },
+        },
+      },
+      "telegram:123:control",
+    ],
+    [
+      {
+        update: {
+          callback_query: {
+            data: "mdl_back",
+            message: mockMessage({ chat: mockChat({ id: 123, type: "private" }) }),
+          },
+        },
+      },
+      "telegram:123",
+    ],
   ])("resolves key %#", (input, expected) => {
     expect(getTelegramSequentialKey(input)).toBe(expected);
   });

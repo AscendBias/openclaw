@@ -2,6 +2,9 @@ import { type Message, type UserFromGetMe } from "@grammyjs/types";
 import { isAbortRequestText } from "../auto-reply/reply/abort.js";
 import { resolveTelegramForumThreadId } from "./bot/helpers.js";
 
+const APPROVAL_CALLBACK_RE =
+  /^\/approve(?:@[^\s]+)?\s+[A-Za-z0-9][A-Za-z0-9._:-]*\s+(allow-once|allow-always|deny)\b/i;
+
 export type TelegramSequentialKeyContext = {
   chat?: { id?: number };
   me?: UserFromGetMe;
@@ -13,12 +16,21 @@ export type TelegramSequentialKeyContext = {
     edited_message?: Message;
     channel_post?: Message;
     edited_channel_post?: Message;
-    callback_query?: { message?: Message };
+    callback_query?: { message?: Message; data?: string };
     message_reaction?: { chat?: { id?: number } };
   };
 };
 
 export function getTelegramSequentialKey(ctx: TelegramSequentialKeyContext): string {
+  const callbackData = ctx.update?.callback_query?.data?.trim() ?? "";
+  const callbackChatId = ctx.update?.callback_query?.message?.chat?.id;
+  if (APPROVAL_CALLBACK_RE.test(callbackData)) {
+    if (typeof callbackChatId === "number") {
+      return `telegram:${callbackChatId}:control`;
+    }
+    return "telegram:control";
+  }
+
   const reaction = ctx.update?.message_reaction;
   if (reaction?.chat?.id) {
     return `telegram:${reaction.chat.id}`;

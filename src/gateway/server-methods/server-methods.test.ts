@@ -734,6 +734,45 @@ describe("exec approval handlers", () => {
     );
   });
 
+  it("treats duplicate exact-id resolution as success when already resolved", async () => {
+    const manager = new ExecApprovalManager();
+    const handlers = createExecApprovalHandlers(manager);
+    const context = {
+      broadcast: (_event: string, _payload: unknown) => {},
+      hasExecApprovalClients: () => true,
+    };
+
+    const requestPromise = requestExecApproval({
+      handlers,
+      respond: vi.fn(),
+      context,
+      params: { id: "approval-dup", host: "gateway", timeoutMs: 60_000 },
+    });
+
+    await drainApprovalRequestTicks();
+
+    const firstRespond = vi.fn();
+    await resolveExecApproval({
+      handlers,
+      id: "approval-dup",
+      respond: firstRespond,
+      context,
+    });
+
+    const secondRespond = vi.fn();
+    await resolveExecApproval({
+      handlers,
+      id: "approval-dup",
+      respond: secondRespond,
+      context,
+    });
+
+    expect(firstRespond).toHaveBeenCalledWith(true, { ok: true }, undefined);
+    expect(secondRespond).toHaveBeenCalledWith(true, { ok: true }, undefined);
+
+    await requestPromise;
+  });
+
   it("returns deterministic unknown/expired message for missing approval ids", async () => {
     const { handlers, respond, context } = createExecApprovalFixture();
 

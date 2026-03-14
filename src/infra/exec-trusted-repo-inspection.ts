@@ -2,14 +2,25 @@ import type { ExecCommandSegment } from "./exec-approvals-analysis.js";
 import { analyzeShellCommand } from "./exec-approvals-analysis.js";
 
 function isTrustedGitRevParseArgv(argv: string[]): boolean {
-  if (argv.length !== 4) {
+  if (argv.length < 4) {
     return false;
   }
-  if (argv[1] !== "rev-parse") {
+  let index = 1;
+  if (argv[index] === "-C") {
+    const cwdArg = argv[index + 1] ?? "";
+    if (!cwdArg || cwdArg.startsWith("-")) {
+      return false;
+    }
+    index += 2;
+  }
+  if (argv[index] !== "rev-parse") {
     return false;
   }
-  const flag = argv[2] ?? "";
-  const ref = argv[3] ?? "";
+  const flag = argv[index + 1] ?? "";
+  const ref = argv[index + 2] ?? "";
+  if (argv.length !== index + 3) {
+    return false;
+  }
   if (ref !== "HEAD") {
     return false;
   }
@@ -67,11 +78,23 @@ function isTrustedRepoInspectionArgv(argv: string[]): boolean {
 }
 
 export function isTrustedRepoInspectionCommand(segments: ExecCommandSegment[]): boolean {
-  if (segments.length !== 1) {
+  let commandSegment: ExecCommandSegment | undefined;
+  if (segments.length === 1) {
+    commandSegment = segments[0];
+  } else if (segments.length === 2) {
+    const [first, second] = segments;
+    const firstArgv =
+      first.resolution?.effectiveArgv && first.resolution.effectiveArgv.length > 0
+        ? first.resolution.effectiveArgv
+        : first.argv;
+    if (firstArgv[0] !== "cd" || firstArgv.length !== 2) {
+      return false;
+    }
+    commandSegment = second;
+  } else {
     return false;
   }
-  const segment = segments[0];
-  const resolution = segment.resolution;
+  const resolution = commandSegment.resolution;
   const executableName = resolution?.executableName?.toLowerCase();
   if (!executableName) {
     return false;
@@ -79,6 +102,6 @@ export function isTrustedRepoInspectionCommand(segments: ExecCommandSegment[]): 
   const argv =
     resolution?.effectiveArgv && resolution.effectiveArgv.length > 0
       ? resolution.effectiveArgv
-      : segment.argv;
+      : commandSegment.argv;
   return isTrustedRepoInspectionArgv(argv);
 }
