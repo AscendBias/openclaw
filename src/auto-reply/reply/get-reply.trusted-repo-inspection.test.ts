@@ -3,7 +3,7 @@ import type { MsgContext } from "../templating.js";
 import { registerGetReplyCommonMocks } from "./get-reply.test-mocks.js";
 
 const mocks = vi.hoisted(() => ({
-  resolveTrustedRepoInspectionPrompt: vi.fn(),
+  resolveTrustedRepoInspectionPromptFromTexts: vi.fn(),
   runTrustedRepoInspectionExec: vi.fn(async () => "safe-agent"),
   resolveReplyDirectives: vi.fn(),
   initSessionState: vi.fn(),
@@ -14,7 +14,7 @@ const mocks = vi.hoisted(() => ({
 registerGetReplyCommonMocks();
 
 vi.mock("../../agents/trusted-repo-inspection.js", () => ({
-  resolveTrustedRepoInspectionPrompt: mocks.resolveTrustedRepoInspectionPrompt,
+  resolveTrustedRepoInspectionPromptFromTexts: mocks.resolveTrustedRepoInspectionPromptFromTexts,
   runTrustedRepoInspectionExec: mocks.runTrustedRepoInspectionExec,
 }));
 vi.mock("../../link-understanding/apply.js", () => ({
@@ -57,14 +57,14 @@ function buildCtx(overrides: Partial<MsgContext> = {}): MsgContext {
 
 describe("getReplyFromConfig trusted repo inspection", () => {
   beforeEach(() => {
-    mocks.resolveTrustedRepoInspectionPrompt.mockReset();
+    mocks.resolveTrustedRepoInspectionPromptFromTexts.mockReset();
     mocks.runTrustedRepoInspectionExec.mockReset();
     mocks.resolveReplyDirectives.mockReset();
     mocks.initSessionState.mockReset();
     mocks.applyMediaUnderstanding.mockReset();
     mocks.applyLinkUnderstanding.mockReset();
 
-    mocks.resolveTrustedRepoInspectionPrompt.mockReturnValue({
+    mocks.resolveTrustedRepoInspectionPromptFromTexts.mockReturnValue({
       kind: "exec",
       argv: ["git", "rev-parse", "--abbrev-ref", "HEAD"],
     });
@@ -121,7 +121,7 @@ describe("getReplyFromConfig trusted repo inspection", () => {
   });
 
   it("returns trusted file lookup response without full run", async () => {
-    mocks.resolveTrustedRepoInspectionPrompt.mockReturnValueOnce({
+    mocks.resolveTrustedRepoInspectionPromptFromTexts.mockReturnValueOnce({
       kind: "file_lookup",
       path: "src/agents/pi-embedded-runner/model.ts",
     });
@@ -135,6 +135,38 @@ describe("getReplyFromConfig trusted repo inspection", () => {
     );
 
     expect(reply).toEqual({ text: "src/agents/pi-embedded-runner/model.ts" });
+    expect(mocks.initSessionState).not.toHaveBeenCalled();
+  });
+
+  it("detects trusted prompt from BodyForAgent fallback", async () => {
+    mocks.resolveTrustedRepoInspectionPromptFromTexts.mockImplementationOnce((texts) => {
+      const list = Array.isArray(texts) ? texts : [];
+      const hasBodyForAgent = list.includes(
+        "Do not guess. Run only this command in the workspace repo: git rev-parse --short HEAD. Return only the output.",
+      );
+      return hasBodyForAgent
+        ? {
+            kind: "exec",
+            argv: ["git", "rev-parse", "--short", "HEAD"],
+          }
+        : null;
+    });
+    mocks.runTrustedRepoInspectionExec.mockResolvedValueOnce("abc1234");
+
+    const reply = await getReplyFromConfig(
+      buildCtx({
+        Body: "",
+        BodyForCommands: "",
+        CommandBody: "",
+        RawBody: "",
+        BodyForAgent:
+          "Do not guess. Run only this command in the workspace repo: git rev-parse --short HEAD. Return only the output.",
+      }),
+      undefined,
+      {},
+    );
+
+    expect(reply).toEqual({ text: "abc1234" });
     expect(mocks.initSessionState).not.toHaveBeenCalled();
   });
 });
