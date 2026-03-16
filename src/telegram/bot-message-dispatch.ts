@@ -1,10 +1,20 @@
+import fs from "node:fs/promises";
+import path from "node:path";
 import type { Bot } from "grammy";
-import { resolveAgentDir } from "../agents/agent-scope.js";
+import {
+  resolveAgentDir,
+  resolveAgentWorkspaceDir,
+  resolveDefaultAgentId,
+} from "../agents/agent-scope.js";
 import {
   findModelInCatalog,
   loadModelCatalog,
   modelSupportsVision,
 } from "../agents/model-catalog.js";
+import {
+  resolveTrustedRepoInspectionPromptFromTexts,
+  runTrustedRepoInspectionExec,
+} from "../agents/trusted-repo-inspection.js";
 import { resolveDefaultModelForAgent } from "../agents/model-selection.js";
 import { resolveChunkMode } from "../auto-reply/chunk.js";
 import { clearHistoryEntriesIfEnabled } from "../auto-reply/reply/history.js";
@@ -162,6 +172,99 @@ export const dispatchTelegramMessage = async ({
     removeAckAfterReply,
     statusReactionController,
   } = context;
+
+  const trustedRepoInspection = resolveTrustedRepoInspectionPromptFromTexts([
+    ctxPayload.BodyForCommands,
+    ctxPayload.CommandBody,
+    ctxPayload.RawBody,
+    ctxPayload.Body,
+    ctxPayload.BodyForAgent,
+  ]);
+  if (trustedRepoInspection) {
+    const agentId = route.agentId || resolveDefaultAgentId(cfg);
+    const workspaceDir = resolveAgentWorkspaceDir(cfg, agentId);
+    let directReplyText: string;
+    let isErrorReply = false;
+    if (trustedRepoInspection.kind === "exec") {
+      try {
+        directReplyText = await runTrustedRepoInspectionExec({
+          argv: trustedRepoInspection.argv,
+          cwd: workspaceDir,
+          timeoutMs: 10_000,
+        });
+      } catch {
+        directReplyText = "Unable to run the requested workspace repo command.";
+        isErrorReply = true;
+      }
+    } else {
+      try {
+        await fs.access(path.join(workspaceDir, trustedRepoInspection.path));
+        directReplyText = trustedRepoInspection.path;
+      } catch {
+        directReplyText = "Unable to verify the Ollama fallback fix path.";
+        isErrorReply = true;
+      }
+    }
+
+    const directDelivery = await deliverReplies({
+      chatId: String(chatId),
+      accountId: route.accountId,
+      sessionKeyForInternalHooks: ctxPayload.SessionKey,
+      mirrorIsGroup: isGroup,
+      mirrorGroupId: isGroup ? String(chatId) : undefined,
+      token: opts.token,
+      runtime,
+      bot,
+      mediaLocalRoots: getAgentScopedMediaLocalRoots(cfg, route.agentId),
+      replyToMode,
+      textLimit,
+      thread: threadSpec,
+      tableMode: resolveMarkdownTableMode({
+        cfg,
+        channel: "telegram",
+        accountId: route.accountId,
+      }),
+      chunkMode: resolveChunkMode({
+        channel: "telegram",
+        channelCfg: telegramCfg,
+      }),
+      linkPreview: telegramCfg.linkPreview,
+      replyQuoteText: undefined,
+      replies: [{ text: directReplyText, isError: isErrorReply }],
+      onVoiceRecording: sendRecordVoice,
+    });
+    if (!directDelivery.delivered) {
+      return;
+    }
+
+    if (statusReactionController) {
+      void statusReactionController.setDone().catch((err) => {
+        logVerbose(`telegram: status reaction finalize failed: ${String(err)}`);
+      });
+    } else {
+      removeAckReactionAfterReply({
+        removeAfterReply: removeAckAfterReply,
+        ackReactionPromise,
+        ackReactionValue: ackReactionPromise ? "ack" : null,
+        remove: () => reactionApi?.(chatId, msg.message_id ?? 0, []) ?? Promise.resolve(),
+        onError: (err) => {
+          if (!msg.message_id) {
+            return;
+          }
+          logAckFailure({
+            log: logVerbose,
+            channel: "telegram",
+            target: `${chatId}/${msg.message_id}`,
+            error: err,
+          });
+        },
+      });
+    }
+    if (isGroup && historyKey) {
+      clearHistoryEntriesIfEnabled({ historyMap: groupHistories, historyKey, limit: historyLimit });
+    }
+    return;
+  }
 
   const draftMaxChars = Math.min(textLimit, 4096);
   const tableMode = resolveMarkdownTableMode({

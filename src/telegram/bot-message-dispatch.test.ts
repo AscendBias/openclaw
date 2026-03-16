@@ -13,6 +13,8 @@ const deliverReplies = vi.hoisted(() => vi.fn());
 const editMessageTelegram = vi.hoisted(() => vi.fn());
 const loadSessionStore = vi.hoisted(() => vi.fn());
 const resolveStorePath = vi.hoisted(() => vi.fn(() => "/tmp/sessions.json"));
+const resolveTrustedRepoInspectionPromptFromTexts = vi.hoisted(() => vi.fn());
+const runTrustedRepoInspectionExec = vi.hoisted(() => vi.fn());
 
 vi.mock("./draft-stream.js", () => ({
   createTelegramDraftStream,
@@ -39,6 +41,11 @@ vi.mock("../config/sessions.js", async (importOriginal) => {
   };
 });
 
+vi.mock("../agents/trusted-repo-inspection.js", () => ({
+  resolveTrustedRepoInspectionPromptFromTexts,
+  runTrustedRepoInspectionExec,
+}));
+
 vi.mock("./sticker-cache.js", () => ({
   cacheSticker: vi.fn(),
   describeStickerImage: vi.fn(),
@@ -56,8 +63,11 @@ describe("dispatchTelegramMessage draft streaming", () => {
     editMessageTelegram.mockClear();
     loadSessionStore.mockClear();
     resolveStorePath.mockClear();
+    resolveTrustedRepoInspectionPromptFromTexts.mockClear();
+    runTrustedRepoInspectionExec.mockClear();
     resolveStorePath.mockReturnValue("/tmp/sessions.json");
     loadSessionStore.mockReturnValue({});
+    resolveTrustedRepoInspectionPromptFromTexts.mockReturnValue(null);
   });
 
   const createDraftStream = (messageId?: number) => createTestDraftStream({ messageId });
@@ -210,6 +220,124 @@ describe("dispatchTelegramMessage draft streaming", () => {
     );
     expect(editMessageTelegram).not.toHaveBeenCalled();
     expect(draftStream.clear).toHaveBeenCalledTimes(1);
+  });
+
+  it("routes trusted repo inspection prompts through direct telegram delivery", async () => {
+    resolveTrustedRepoInspectionPromptFromTexts.mockReturnValue({
+      kind: "exec",
+      argv: ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+    });
+    runTrustedRepoInspectionExec.mockResolvedValue("safe-agent");
+    deliverReplies.mockResolvedValue({ delivered: true });
+
+    await dispatchWithContext({ context: createContext() });
+
+    expect(runTrustedRepoInspectionExec).toHaveBeenCalledWith(
+      expect.objectContaining({
+        argv: ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+      }),
+    );
+    expect(dispatchReplyWithBufferedBlockDispatcher).not.toHaveBeenCalled();
+    expect(deliverReplies).toHaveBeenCalledWith(
+      expect.objectContaining({
+        replies: [{ text: "safe-agent", isError: false }],
+      }),
+    );
+  });
+
+  it("uses configured agent workspace for trusted direct-lane exec", async () => {
+    resolveTrustedRepoInspectionPromptFromTexts.mockReturnValue({
+      kind: "exec",
+      argv: ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+    });
+    runTrustedRepoInspectionExec.mockResolvedValue("safe-agent");
+    deliverReplies.mockResolvedValue({ delivered: true });
+
+    await dispatchWithContext({
+      context: createContext({
+        route: { agentId: "main", accountId: "default" } as TelegramMessageContext["route"],
+      }),
+      cfg: {
+        agents: {
+          defaults: {
+            workspace: "/tmp/custom-workspace",
+          },
+        },
+      },
+    });
+
+    expect(runTrustedRepoInspectionExec).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cwd: "/tmp/custom-workspace",
+      }),
+    );
+    expect(dispatchReplyWithBufferedBlockDispatcher).not.toHaveBeenCalled();
+  });
+
+  it("keeps direct-lane trusted exec response as exact stdout text", async () => {
+    resolveTrustedRepoInspectionPromptFromTexts.mockReturnValue({
+      kind: "exec",
+      argv: ["git", "rev-parse", "--short", "HEAD"],
+    });
+    runTrustedRepoInspectionExec.mockResolvedValue("abc1234");
+    deliverReplies.mockResolvedValue({ delivered: true });
+
+    await dispatchWithContext({ context: createContext() });
+
+    expect(deliverReplies).toHaveBeenCalledWith(
+      expect.objectContaining({
+        replies: [{ text: "abc1234", isError: false }],
+      }),
+    );
+    expect(dispatchReplyWithBufferedBlockDispatcher).not.toHaveBeenCalled();
+  });
+
+  it("returns direct file-lookup response for trusted Ollama fallback prompt", async () => {
+    resolveTrustedRepoInspectionPromptFromTexts.mockReturnValue({
+      kind: "file_lookup",
+      path: "src/agents/pi-embedded-runner/model.ts",
+    });
+    deliverReplies.mockResolvedValue({ delivered: true });
+
+    await dispatchWithContext({
+      context: createContext({
+        route: { agentId: "main", accountId: "default" } as TelegramMessageContext["route"],
+      }),
+      cfg: {
+        agents: {
+          defaults: {
+            workspace: process.cwd(),
+          },
+        },
+      },
+    });
+
+    expect(dispatchReplyWithBufferedBlockDispatcher).not.toHaveBeenCalled();
+    expect(deliverReplies).toHaveBeenCalledWith(
+      expect.objectContaining({
+        replies: [{ text: "src/agents/pi-embedded-runner/model.ts", isError: false }],
+      }),
+    );
+  });
+
+  it("keeps untrusted prompts on the normal buffered dispatcher path", async () => {
+    dispatchReplyWithBufferedBlockDispatcher.mockImplementation(async ({ dispatcherOptions }) => {
+      await dispatcherOptions.deliver({ text: "normal flow" }, { kind: "final" });
+      return { queuedFinal: true };
+    });
+    deliverReplies.mockResolvedValue({ delivered: true });
+
+    await dispatchWithContext({
+      context: createContext({
+        ctxPayload: {
+          Body: "Do not guess. Run ls -la and summarize.",
+        } as unknown as TelegramMessageContext["ctxPayload"],
+      }),
+    });
+
+    expect(resolveTrustedRepoInspectionPromptFromTexts).toHaveBeenCalled();
+    expect(runTrustedRepoInspectionExec).not.toHaveBeenCalled();
+    expect(dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledTimes(1);
   });
 
   it("does not inject approval buttons in local dispatch once the monitor owns approvals", async () => {
