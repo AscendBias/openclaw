@@ -29,6 +29,7 @@ const ANTHROPIC_MODEL_ALIASES: Record<string, string> = {
   "sonnet-4.5": "claude-sonnet-4-5",
 };
 const CLAUDE_46_MODEL_RE = /claude-(?:opus|sonnet)-4(?:\.|-)6(?:$|[-.])/i;
+const LOCAL_FIRST_PROVIDER_PRIORITY = ["ollama", "local"] as const;
 
 function normalizeAliasKey(value: string): string {
   return value.trim().toLowerCase();
@@ -302,12 +303,14 @@ export function resolveConfiguredModelRef(params: {
         return aliasMatch.ref;
       }
 
-      // Default to anthropic if no provider is specified, but warn as this is deprecated.
+      // Default to the current runtime default provider when no provider is specified.
+      // This keeps local-first forks fast (for example ollama) instead of hard-wiring
+      // cloud-provider assumptions into shorthand model strings.
       const safeTrimmed = sanitizeForLog(trimmed);
       log.warn(
-        `Model "${safeTrimmed}" specified without provider. Falling back to "anthropic/${safeTrimmed}". Please use "anthropic/${safeTrimmed}" in your config.`,
+        `Model "${safeTrimmed}" specified without provider. Falling back to "${params.defaultProvider}/${safeTrimmed}". Please use "${params.defaultProvider}/${safeTrimmed}" in your config.`,
       );
-      return { provider: "anthropic", model: trimmed };
+      return { provider: params.defaultProvider, model: trimmed };
     }
 
     const resolved = resolveModelRefFromString({
@@ -332,13 +335,17 @@ export function resolveConfiguredModelRef(params: {
   if (configuredProviders && typeof configuredProviders === "object") {
     const hasDefaultProvider = Boolean(configuredProviders[params.defaultProvider]);
     if (!hasDefaultProvider) {
-      const availableProvider = Object.entries(configuredProviders).find(
+      const providersWithModels = Object.entries(configuredProviders).filter(
         ([, providerCfg]) =>
           providerCfg &&
           Array.isArray(providerCfg.models) &&
           providerCfg.models.length > 0 &&
           providerCfg.models[0]?.id,
       );
+      const availableProvider =
+        providersWithModels.find(([providerName]) =>
+          LOCAL_FIRST_PROVIDER_PRIORITY.includes(normalizeProviderId(providerName) as never),
+        ) ?? providersWithModels[0];
       if (availableProvider) {
         const [providerName, providerCfg] = availableProvider;
         const firstModel = providerCfg.models[0];

@@ -1,4 +1,8 @@
 import type { OpenClawConfig } from "../config/config.js";
+import {
+  resolveDeterministicLocalLaneMatch,
+  runDeterministicLocalLane,
+} from "./deterministic-local-lane.js";
 import type { DispatchFromConfigResult } from "./reply/dispatch-from-config.js";
 import { dispatchReplyFromConfig } from "./reply/dispatch-from-config.js";
 import { finalizeInboundContext } from "./reply/inbound-context.js";
@@ -32,6 +36,24 @@ export async function withReplyDispatcher<T>(params: {
   }
 }
 
+async function tryDispatchDeterministicLocalLane(params: {
+  ctx: FinalizedMsgContext;
+  cfg: OpenClawConfig;
+  deliver: ReplyDispatcherOptions["deliver"];
+}): Promise<DispatchInboundResult | null> {
+  const match = resolveDeterministicLocalLaneMatch({
+    ctx: params.ctx,
+    cfg: params.cfg,
+  });
+  if (!match) {
+    return null;
+  }
+
+  const payload = await runDeterministicLocalLane(match);
+  await params.deliver(payload, { kind: "final" });
+  return { queuedFinal: true, counts: { tool: 0, block: 0, final: 1 } };
+}
+
 export async function dispatchInboundMessage(params: {
   ctx: MsgContext | FinalizedMsgContext;
   cfg: OpenClawConfig;
@@ -60,12 +82,22 @@ export async function dispatchInboundMessageWithBufferedDispatcher(params: {
   replyOptions?: Omit<GetReplyOptions, "onToolResult" | "onBlockReply">;
   replyResolver?: typeof import("./reply.js").getReplyFromConfig;
 }): Promise<DispatchInboundResult> {
+  const finalized = finalizeInboundContext(params.ctx);
+  const deterministicLocalResult = await tryDispatchDeterministicLocalLane({
+    ctx: finalized,
+    cfg: params.cfg,
+    deliver: params.dispatcherOptions.deliver,
+  });
+  if (deterministicLocalResult) {
+    return deterministicLocalResult;
+  }
+
   const { dispatcher, replyOptions, markDispatchIdle } = createReplyDispatcherWithTyping(
     params.dispatcherOptions,
   );
   try {
     return await dispatchInboundMessage({
-      ctx: params.ctx,
+      ctx: finalized,
       cfg: params.cfg,
       dispatcher,
       replyResolver: params.replyResolver,
@@ -86,9 +118,19 @@ export async function dispatchInboundMessageWithDispatcher(params: {
   replyOptions?: Omit<GetReplyOptions, "onToolResult" | "onBlockReply">;
   replyResolver?: typeof import("./reply.js").getReplyFromConfig;
 }): Promise<DispatchInboundResult> {
+  const finalized = finalizeInboundContext(params.ctx);
+  const deterministicLocalResult = await tryDispatchDeterministicLocalLane({
+    ctx: finalized,
+    cfg: params.cfg,
+    deliver: params.dispatcherOptions.deliver,
+  });
+  if (deterministicLocalResult) {
+    return deterministicLocalResult;
+  }
+
   const dispatcher = createReplyDispatcher(params.dispatcherOptions);
   return await dispatchInboundMessage({
-    ctx: params.ctx,
+    ctx: finalized,
     cfg: params.cfg,
     dispatcher,
     replyResolver: params.replyResolver,

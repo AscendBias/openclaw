@@ -32,6 +32,7 @@ import type { GetReplyOptions, ReplyPayload } from "../types.js";
 import { formatAbortReplyText, tryFastAbortFromMessage } from "./abort.js";
 import { shouldBypassAcpDispatchForCommand, tryDispatchAcpReply } from "./dispatch-acp.js";
 import { shouldSkipDuplicateInbound } from "./inbound-dedupe.js";
+import { classifyLocalTaskLane } from "./local-task-lane.js";
 import type { ReplyDispatcher, ReplyDispatchKind } from "./reply-dispatcher.js";
 import { shouldSuppressReasoningPayload } from "./reply-payloads.js";
 import { isRoutableChannel, routeReply } from "./route-reply.js";
@@ -231,8 +232,11 @@ export async function dispatchReplyFromConfig(params: {
     originatingTo &&
     originatingChannel !== currentSurface,
   );
+  const localTaskLane = classifyLocalTaskLane(ctx, cfg);
   const shouldSuppressTyping =
-    shouldRouteToOriginating || originatingChannel === INTERNAL_MESSAGE_CHANNEL;
+    shouldRouteToOriginating ||
+    originatingChannel === INTERNAL_MESSAGE_CHANNEL ||
+    localTaskLane.deterministicTrustedRepoTask;
   const ttsChannel = shouldRouteToOriginating ? originatingChannel : currentSurface;
 
   /**

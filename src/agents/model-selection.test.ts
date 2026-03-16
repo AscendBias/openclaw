@@ -466,7 +466,7 @@ describe("model-selection", () => {
   });
 
   describe("resolveConfiguredModelRef", () => {
-    it("should fall back to anthropic and warn if provider is missing for non-alias", () => {
+    it("should fall back to default provider and warn if provider is missing for non-alias", () => {
       setLoggerOverride({ level: "silent", consoleLevel: "warn" });
       const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
       try {
@@ -484,9 +484,9 @@ describe("model-selection", () => {
           defaultModel: "gemini-pro",
         });
 
-        expect(result).toEqual({ provider: "anthropic", model: "claude-3-5-sonnet" });
+        expect(result).toEqual({ provider: "google", model: "claude-3-5-sonnet" });
         expect(warnSpy).toHaveBeenCalledWith(
-          expect.stringContaining('Falling back to "anthropic/claude-3-5-sonnet"'),
+          expect.stringContaining('Falling back to "google/claude-3-5-sonnet"'),
         );
       } finally {
         setLoggerOverride(null);
@@ -513,11 +513,11 @@ describe("model-selection", () => {
         });
 
         expect(result).toEqual({
-          provider: "anthropic",
+          provider: "google",
           model: "\u001B[31mclaude-3-5-sonnet\nspoof",
         });
         const warning = warnSpy.mock.calls[0]?.[0] as string;
-        expect(warning).toContain('Falling back to "anthropic/claude-3-5-sonnet"');
+        expect(warning).toContain('Falling back to "google/claude-3-5-sonnet"');
         expect(warning).not.toContain("\u001B");
         expect(warning).not.toContain("\n");
       } finally {
@@ -566,6 +566,48 @@ describe("model-selection", () => {
       expect(result).toEqual({ provider: "n1n", model: "gpt-5.4" });
     });
 
+    it("prefers ollama provider when default provider is unavailable", () => {
+      const cfg: Partial<OpenClawConfig> = {
+        models: {
+          providers: {
+            openai: {
+              baseUrl: "https://api.openai.com/v1",
+              models: [
+                {
+                  id: "gpt-4.1",
+                  name: "GPT-4.1",
+                  reasoning: false,
+                  input: ["text"],
+                  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+                  contextWindow: 128000,
+                  maxTokens: 4096,
+                },
+              ],
+            },
+            ollama: {
+              baseUrl: "http://localhost:11434",
+              models: [
+                {
+                  id: "qwen2.5-coder:14b",
+                  name: "qwen2.5-coder:14b",
+                  reasoning: false,
+                  input: ["text"],
+                  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+                  contextWindow: 32768,
+                  maxTokens: 4096,
+                },
+              ],
+            },
+          },
+        },
+      };
+      const result = resolveConfiguredModelRef({
+        cfg: cfg as OpenClawConfig,
+        defaultProvider: "anthropic",
+        defaultModel: "claude-opus-4-6",
+      });
+      expect(result).toEqual({ provider: "ollama", model: "qwen2.5-coder:14b" });
+    });
     it("should keep default provider when it is in models.providers", () => {
       const cfg: Partial<OpenClawConfig> = {
         models: {
