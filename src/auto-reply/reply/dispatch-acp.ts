@@ -10,7 +10,6 @@ import {
   resolveSessionIdentityFromMeta,
 } from "../../acp/runtime/session-identity.js";
 import { readAcpSessionEntry } from "../../acp/runtime/session-meta.js";
-import { resolveTrustedRepoInspectionPromptFromTexts } from "../../agents/trusted-repo-inspection.js";
 import type { OpenClawConfig } from "../../config/config.js";
 import type { TtsAutoMode } from "../../config/types.tts.js";
 import { logVerbose } from "../../globals.js";
@@ -32,6 +31,7 @@ import {
 import type { FinalizedMsgContext } from "../templating.js";
 import { createAcpReplyProjector } from "./acp-projector.js";
 import { createAcpDispatchDeliveryCoordinator } from "./dispatch-acp-delivery.js";
+import { classifyLocalTaskLane } from "./local-task-lane.js";
 import type { ReplyDispatcher, ReplyDispatchKind } from "./reply-dispatcher.js";
 
 type DispatchProcessedRecorder = (
@@ -115,15 +115,7 @@ export function shouldBypassAcpDispatchForCommand(
   // Route deterministic trusted repo inspection prompts through the local fast path
   // before ACP/model orchestration, so responses come directly from the configured
   // workspace without approval-card races.
-  if (
-    resolveTrustedRepoInspectionPromptFromTexts([
-      ctx.BodyForCommands,
-      ctx.CommandBody,
-      ctx.RawBody,
-      ctx.Body,
-      ctx.BodyForAgent,
-    ])
-  ) {
+  if (classifyLocalTaskLane(ctx, cfg).deterministicTrustedRepoTask) {
     return true;
   }
 
