@@ -15,6 +15,34 @@ export type ModelRef = {
   model: string;
 };
 
+export function resolveOllamaFirstReasoningModel(params: {
+  cfg: OpenClawConfig;
+  fallback: ModelRef;
+}): ModelRef {
+  const providers = params.cfg.models?.providers;
+  if (!providers || typeof providers !== "object") {
+    return params.fallback;
+  }
+  const withModels = Object.entries(providers).filter(
+    ([, providerCfg]) =>
+      providerCfg &&
+      Array.isArray(providerCfg.models) &&
+      providerCfg.models.length > 0 &&
+      providerCfg.models[0]?.id,
+  );
+  if (withModels.length === 0) {
+    return params.fallback;
+  }
+  const preferred =
+    withModels.find(([providerName]) => normalizeProviderId(providerName) === "ollama") ??
+    withModels.find(([providerName]) => normalizeProviderId(providerName) === "local");
+  if (!preferred) {
+    return params.fallback;
+  }
+  const [providerName, providerCfg] = preferred;
+  return { provider: providerName, model: providerCfg.models[0]?.id ?? params.fallback.model };
+}
+
 export type ThinkLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "adaptive";
 
 export type ModelAliasIndex = {

@@ -59,7 +59,10 @@ describe("getTelegramSequentialKey", () => {
       { message: mockMessage({ chat: mockChat({ id: 123 }), text: "/stop" }) },
       "telegram:123:control",
     ],
-    [{ message: mockMessage({ chat: mockChat({ id: 123 }), text: "/status" }) }, "telegram:123"],
+    [
+      { message: mockMessage({ chat: mockChat({ id: 123 }), text: "/status" }) },
+      "telegram:123:control",
+    ],
     [
       { message: mockMessage({ chat: mockChat({ id: 123 }), text: "stop" }) },
       "telegram:123:control",
@@ -80,8 +83,18 @@ describe("getTelegramSequentialKey", () => {
       { message: mockMessage({ chat: mockChat({ id: 123 }), text: "halt" }) },
       "telegram:123:control",
     ],
-    [{ message: mockMessage({ chat: mockChat({ id: 123 }), text: "/abort" }) }, "telegram:123"],
-    [{ message: mockMessage({ chat: mockChat({ id: 123 }), text: "/abort now" }) }, "telegram:123"],
+    [
+      { message: mockMessage({ chat: mockChat({ id: 123 }), text: "/abort" }) },
+      "telegram:123:control",
+    ],
+    [
+      { message: mockMessage({ chat: mockChat({ id: 123 }), text: "/abort now" }) },
+      "telegram:123:control",
+    ],
+    [
+      { message: mockMessage({ chat: mockChat({ id: 123 }), text: "/approve abcd allow-once" }) },
+      "telegram:123:control",
+    ],
     [
       { message: mockMessage({ chat: mockChat({ id: 123 }), text: "please do not do that" }) },
       "telegram:123",

@@ -439,7 +439,9 @@ export async function runPreparedReply(
     cfg,
     channel: sessionCtx.Provider,
     sessionEntry,
-    inlineMode: perMessageQueueMode,
+    inlineMode:
+      perMessageQueueMode ??
+      (opts?.localTaskLane === "reasoning-local" ? "steer-backlog" : undefined),
     inlineOptions: perMessageQueueOptions,
   });
   const sessionLaneKey = resolveEmbeddedSessionLane(sessionKey ?? sessionIdFinal);

@@ -4,7 +4,10 @@ import {
   resolveSessionAgentId,
   resolveAgentSkillsFilter,
 } from "../../agents/agent-scope.js";
-import { resolveModelRefFromString } from "../../agents/model-selection.js";
+import {
+  resolveModelRefFromString,
+  resolveOllamaFirstReasoningModel,
+} from "../../agents/model-selection.js";
 import { resolveAgentTimeoutMs } from "../../agents/timeout.js";
 import {
   resolveTrustedRepoInspectionPromptFromTexts,
@@ -245,6 +248,20 @@ export async function getReplyFromConfig(
       provider = resolved.ref.provider;
       model = resolved.ref.model;
     }
+  }
+
+  if (
+    opts?.localTaskLane === "reasoning-local" &&
+    !hasResolvedHeartbeatModelOverride &&
+    !hasSessionModelOverride &&
+    !channelModelOverride
+  ) {
+    const ollamaFirst = resolveOllamaFirstReasoningModel({
+      cfg,
+      fallback: { provider, model },
+    });
+    provider = ollamaFirst.provider;
+    model = ollamaFirst.model;
   }
 
   const directiveResult = await resolveReplyDirectives({

@@ -12,6 +12,7 @@ import {
   modelKey,
   resolveAllowedModelRef,
   resolveConfiguredModelRef,
+  resolveOllamaFirstReasoningModel,
   resolveThinkingDefault,
   resolveModelRefFromString,
 } from "./model-selection.js";
@@ -769,5 +770,36 @@ describe("normalizeModelSelection", () => {
     expect(normalizeModelSelection(undefined)).toBeUndefined();
     expect(normalizeModelSelection(null)).toBeUndefined();
     expect(normalizeModelSelection(42)).toBeUndefined();
+  });
+});
+
+describe("resolveOllamaFirstReasoningModel", () => {
+  it("prefers the first configured ollama model when available", () => {
+    const cfg = {
+      models: {
+        providers: {
+          openai: { models: [{ id: "gpt-5" }] },
+          ollama: { models: [{ id: "llama3.2:3b" }] },
+        },
+      },
+    } as OpenClawConfig;
+    const resolved = resolveOllamaFirstReasoningModel({
+      cfg,
+      fallback: { provider: "anthropic", model: "claude-opus-4-6" },
+    });
+    expect(resolved).toEqual({ provider: "ollama", model: "llama3.2:3b" });
+  });
+
+  it("falls back when no local provider models are configured", () => {
+    const cfg = {
+      models: {
+        providers: {
+          openai: { models: [{ id: "gpt-5" }] },
+        },
+      },
+    } as OpenClawConfig;
+    const fallback = { provider: "anthropic", model: "claude-opus-4-6" };
+    const resolved = resolveOllamaFirstReasoningModel({ cfg, fallback });
+    expect(resolved).toEqual(fallback);
   });
 });

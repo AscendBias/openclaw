@@ -11,13 +11,14 @@ import {
   loadModelCatalog,
   modelSupportsVision,
 } from "../agents/model-catalog.js";
+import { resolveDefaultModelForAgent } from "../agents/model-selection.js";
 import {
   resolveTrustedRepoInspectionPromptFromTexts,
   runTrustedRepoInspectionExec,
 } from "../agents/trusted-repo-inspection.js";
-import { resolveDefaultModelForAgent } from "../agents/model-selection.js";
 import { resolveChunkMode } from "../auto-reply/chunk.js";
 import { clearHistoryEntriesIfEnabled } from "../auto-reply/reply/history.js";
+import { classifyLocalTaskLane } from "../auto-reply/reply/local-task-lane.js";
 import { dispatchReplyWithBufferedBlockDispatcher } from "../auto-reply/reply/provider-dispatcher.js";
 import type { ReplyPayload } from "../auto-reply/types.js";
 import { removeAckReactionAfterReply } from "../channels/ack-reactions.js";
@@ -529,6 +530,7 @@ export const dispatchTelegramMessage = async ({
       ? ctxPayload.ReplyToBody.trim() || undefined
       : undefined;
   const deliveryState = createLaneDeliveryStateTracker();
+  const localTaskLane = classifyLocalTaskLane(ctxPayload, cfg);
   const clearGroupHistory = () => {
     if (isGroup && historyKey) {
       clearHistoryEntriesIfEnabled({ historyMap: groupHistories, historyKey, limit: historyLimit });
@@ -599,6 +601,46 @@ export const dispatchTelegramMessage = async ({
   });
 
   let queuedFinal = false;
+  let ackMessageId: number | undefined;
+  let ackTimer: ReturnType<typeof setTimeout> | undefined;
+  const scheduleLocalReasoningAck = () => {
+    if (
+      !localTaskLane.reasoningLocalTelegramTask ||
+      !localTaskLane.expectedLongRunning ||
+      statusReactionController
+    ) {
+      return;
+    }
+    ackTimer = setTimeout(() => {
+      if (deliveryState.snapshot().delivered) {
+        return;
+      }
+      if (answerLane.stream?.messageId() != null || reasoningLane.stream?.messageId() != null) {
+        return;
+      }
+      // Fire-and-forget: avoid blocking the run on ack delivery.
+      void bot.api
+        .sendMessage(
+          chatId,
+          "Working on this locally with Ollama…",
+          threadSpec?.id != null ? { message_thread_id: threadSpec.id } : {},
+        )
+        .then((sent) => {
+          ackMessageId = sent.message_id;
+        })
+        .catch((err) => {
+          logVerbose(`telegram: local reasoning ack send failed: ${String(err)}`);
+        });
+    }, 500);
+  };
+  const clearLocalReasoningAckTimer = () => {
+    if (ackTimer) {
+      clearTimeout(ackTimer);
+      ackTimer = undefined;
+    }
+  };
+
+  scheduleLocalReasoningAck();
 
   if (statusReactionController) {
     void statusReactionController.setThinking();
@@ -807,6 +849,7 @@ export const dispatchTelegramMessage = async ({
     dispatchError = err;
     runtime.error?.(danger(`telegram dispatch failed: ${String(err)}`));
   } finally {
+    clearLocalReasoningAckTimer();
     // Upstream assistant callbacks are fire-and-forget; drain queued lane work
     // before stream cleanup so boundary rotations/materialization complete first.
     await draftLaneEventQueue;
@@ -898,6 +941,14 @@ export const dispatchTelegramMessage = async ({
   if (!hasFinalResponse) {
     clearGroupHistory();
     return;
+  }
+
+  if (ackMessageId != null) {
+    try {
+      await bot.api.deleteMessage(chatId, ackMessageId);
+    } catch (err) {
+      logVerbose(`telegram: local reasoning ack cleanup failed (${ackMessageId}): ${String(err)}`);
+    }
   }
 
   if (statusReactionController) {

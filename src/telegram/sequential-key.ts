@@ -4,6 +4,7 @@ import { resolveTelegramForumThreadId } from "./bot/helpers.js";
 
 const APPROVAL_CALLBACK_RE =
   /^\/approve(?:@[^\s]+)?\s+[A-Za-z0-9][A-Za-z0-9._:-]*\s+(allow-once|allow-always|deny)\b/i;
+const CONTROL_COMMAND_RE = /^\/(?:approve|abort|status)\b/i;
 
 export type TelegramSequentialKeyContext = {
   chat?: { id?: number };
@@ -46,6 +47,12 @@ export function getTelegramSequentialKey(ctx: TelegramSequentialKeyContext): str
     ctx.update?.callback_query?.message;
   const chatId = msg?.chat?.id ?? ctx.chat?.id;
   const rawText = msg?.text ?? msg?.caption;
+  if (rawText && CONTROL_COMMAND_RE.test(rawText.trim())) {
+    if (typeof chatId === "number") {
+      return `telegram:${chatId}:control`;
+    }
+    return "telegram:control";
+  }
   const botUsername = ctx.me?.username;
   if (isAbortRequestText(rawText, botUsername ? { botUsername } : undefined)) {
     if (typeof chatId === "number") {
