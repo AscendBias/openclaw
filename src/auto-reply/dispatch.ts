@@ -6,6 +6,7 @@ import {
 import type { DispatchFromConfigResult } from "./reply/dispatch-from-config.js";
 import { dispatchReplyFromConfig } from "./reply/dispatch-from-config.js";
 import { finalizeInboundContext } from "./reply/inbound-context.js";
+import { classifyLocalTaskLane } from "./reply/local-task-lane.js";
 import {
   createReplyDispatcher,
   createReplyDispatcherWithTyping,
@@ -62,6 +63,7 @@ export async function dispatchInboundMessage(params: {
   replyResolver?: typeof import("./reply.js").getReplyFromConfig;
 }): Promise<DispatchInboundResult> {
   const finalized = finalizeInboundContext(params.ctx);
+  const localTaskLane = classifyLocalTaskLane(finalized, params.cfg);
   return await withReplyDispatcher({
     dispatcher: params.dispatcher,
     run: () =>
@@ -69,7 +71,10 @@ export async function dispatchInboundMessage(params: {
         ctx: finalized,
         cfg: params.cfg,
         dispatcher: params.dispatcher,
-        replyOptions: params.replyOptions,
+        replyOptions: {
+          ...params.replyOptions,
+          localTaskLane: params.replyOptions?.localTaskLane ?? localTaskLane.lane,
+        },
         replyResolver: params.replyResolver,
       }),
   });

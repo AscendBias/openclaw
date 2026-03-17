@@ -21,6 +21,8 @@ export type TypingPolicy =
   | "heartbeat";
 
 export type GetReplyOptions = {
+  /** Lane classification for local-first dispatch behavior. */
+  localTaskLane?: "deterministic-local" | "reasoning-local" | "control" | "default";
   /** Override run id for agent events (defaults to random UUID). */
   runId?: string;
   /** Abort signal for the underlying agent run. */
