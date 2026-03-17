@@ -233,6 +233,8 @@ export async function dispatchReplyFromConfig(params: {
     originatingChannel !== currentSurface,
   );
   const localTaskLane = classifyLocalTaskLane(ctx, cfg);
+  const bypassAcpForReasoningLocalLane =
+    localTaskLane.lane === "reasoning-local" && currentSurface === "telegram";
   const shouldSuppressTyping =
     shouldRouteToOriginating ||
     originatingChannel === INTERNAL_MESSAGE_CHANNEL ||
@@ -342,25 +344,27 @@ export async function dispatchReplyFromConfig(params: {
     }
 
     const shouldSendToolSummaries = ctx.ChatType !== "group" && ctx.CommandSource !== "native";
-    const acpDispatch = await tryDispatchAcpReply({
-      ctx,
-      cfg,
-      dispatcher,
-      sessionKey: acpDispatchSessionKey,
-      inboundAudio,
-      sessionTtsAuto,
-      ttsChannel,
-      shouldRouteToOriginating,
-      originatingChannel,
-      originatingTo,
-      shouldSendToolSummaries,
-      bypassForCommand: bypassAcpForCommand,
-      onReplyStart: params.replyOptions?.onReplyStart,
-      recordProcessed,
-      markIdle,
-    });
-    if (acpDispatch) {
-      return acpDispatch;
+    if (!bypassAcpForReasoningLocalLane) {
+      const acpDispatch = await tryDispatchAcpReply({
+        ctx,
+        cfg,
+        dispatcher,
+        sessionKey: acpDispatchSessionKey,
+        inboundAudio,
+        sessionTtsAuto,
+        ttsChannel,
+        shouldRouteToOriginating,
+        originatingChannel,
+        originatingTo,
+        shouldSendToolSummaries,
+        bypassForCommand: bypassAcpForCommand,
+        onReplyStart: params.replyOptions?.onReplyStart,
+        recordProcessed,
+        markIdle,
+      });
+      if (acpDispatch) {
+        return acpDispatch;
+      }
     }
 
     // Track accumulated block text for TTS generation after streaming completes.
