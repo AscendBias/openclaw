@@ -1,3 +1,5 @@
+import fs from "node:fs/promises";
+import path from "node:path";
 import {
   resolveAgentDir,
   resolveAgentWorkspaceDir,
@@ -104,7 +106,14 @@ export async function getReplyFromConfig(
     }
   }
   if (trustedRepoInspection?.kind === "file_lookup") {
-    return { text: trustedRepoInspection.path };
+    const trustedWorkspaceDir =
+      resolveAgentWorkspaceDir(cfg, agentId) ?? DEFAULT_AGENT_WORKSPACE_DIR;
+    try {
+      await fs.access(path.join(trustedWorkspaceDir, trustedRepoInspection.path));
+      return { text: trustedRepoInspection.path };
+    } catch {
+      return { text: "I couldn't verify that file in the workspace repo.", isError: true };
+    }
   }
 
   const mergedSkillFilter = mergeSkillFilters(

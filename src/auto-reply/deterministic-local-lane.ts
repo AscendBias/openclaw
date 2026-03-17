@@ -1,3 +1,5 @@
+import fs from "node:fs/promises";
+import path from "node:path";
 import { resolveAgentWorkspaceDir, resolveSessionAgentId } from "../agents/agent-scope.js";
 import {
   resolveTrustedRepoInspectionPromptFromTexts,
@@ -17,6 +19,7 @@ export type DeterministicLocalLaneMatch =
   | {
       kind: "file_lookup";
       path: string;
+      workspaceDir: string;
     };
 
 export function resolveDeterministicLocalLaneMatch(params: {
@@ -34,13 +37,6 @@ export function resolveDeterministicLocalLaneMatch(params: {
     return null;
   }
 
-  if (trustedPrompt.kind === "file_lookup") {
-    return {
-      kind: "file_lookup",
-      path: trustedPrompt.path,
-    };
-  }
-
   const targetSessionKey =
     params.ctx.CommandSource === "native" ? params.ctx.CommandTargetSessionKey?.trim() : undefined;
   const sessionKey = targetSessionKey || params.ctx.SessionKey;
@@ -49,6 +45,14 @@ export function resolveDeterministicLocalLaneMatch(params: {
     config: params.cfg,
   });
   const workspaceDir = resolveAgentWorkspaceDir(params.cfg, agentId) ?? DEFAULT_AGENT_WORKSPACE_DIR;
+
+  if (trustedPrompt.kind === "file_lookup") {
+    return {
+      kind: "file_lookup",
+      path: trustedPrompt.path,
+      workspaceDir,
+    };
+  }
 
   return {
     kind: "exec",
@@ -61,7 +65,15 @@ export async function runDeterministicLocalLane(
   match: DeterministicLocalLaneMatch,
 ): Promise<ReplyPayload> {
   if (match.kind === "file_lookup") {
-    return { text: match.path };
+    try {
+      await fs.access(path.join(match.workspaceDir, match.path));
+      return { text: match.path };
+    } catch {
+      return {
+        text: "I couldn't verify that file in the workspace repo.",
+        isError: true,
+      };
+    }
   }
 
   try {

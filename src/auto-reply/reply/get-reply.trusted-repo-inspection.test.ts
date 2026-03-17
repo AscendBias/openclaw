@@ -3,6 +3,7 @@ import type { MsgContext } from "../templating.js";
 import { registerGetReplyCommonMocks } from "./get-reply.test-mocks.js";
 
 const mocks = vi.hoisted(() => ({
+  fsAccess: vi.fn(async () => undefined),
   resolveTrustedRepoInspectionPromptFromTexts: vi.fn(),
   runTrustedRepoInspectionExec: vi.fn(async () => "safe-agent"),
   resolveReplyDirectives: vi.fn(),
@@ -12,6 +13,12 @@ const mocks = vi.hoisted(() => ({
 }));
 
 registerGetReplyCommonMocks();
+
+vi.mock("node:fs/promises", () => ({
+  default: {
+    access: mocks.fsAccess,
+  },
+}));
 
 vi.mock("../../agents/trusted-repo-inspection.js", () => ({
   resolveTrustedRepoInspectionPromptFromTexts: mocks.resolveTrustedRepoInspectionPromptFromTexts,
@@ -57,6 +64,7 @@ function buildCtx(overrides: Partial<MsgContext> = {}): MsgContext {
 
 describe("getReplyFromConfig trusted repo inspection", () => {
   beforeEach(() => {
+    mocks.fsAccess.mockReset();
     mocks.resolveTrustedRepoInspectionPromptFromTexts.mockReset();
     mocks.runTrustedRepoInspectionExec.mockReset();
     mocks.resolveReplyDirectives.mockReset();
@@ -68,6 +76,7 @@ describe("getReplyFromConfig trusted repo inspection", () => {
       kind: "exec",
       argv: ["git", "rev-parse", "--abbrev-ref", "HEAD"],
     });
+    mocks.fsAccess.mockResolvedValue(undefined);
     mocks.runTrustedRepoInspectionExec.mockResolvedValue("safe-agent");
     mocks.resolveReplyDirectives.mockResolvedValue({ kind: "reply", reply: { text: "ok" } });
     mocks.initSessionState.mockResolvedValue({
@@ -120,7 +129,7 @@ describe("getReplyFromConfig trusted repo inspection", () => {
     expect(mocks.initSessionState).not.toHaveBeenCalled();
   });
 
-  it("returns trusted file lookup response without full run", async () => {
+  it("returns trusted file lookup response without full run when file exists", async () => {
     mocks.resolveTrustedRepoInspectionPromptFromTexts.mockReturnValueOnce({
       kind: "file_lookup",
       path: "src/agents/pi-embedded-runner/model.ts",
@@ -135,6 +144,34 @@ describe("getReplyFromConfig trusted repo inspection", () => {
     );
 
     expect(reply).toEqual({ text: "src/agents/pi-embedded-runner/model.ts" });
+    expect(mocks.fsAccess).toHaveBeenCalledWith(
+      "/tmp/workspace/src/agents/pi-embedded-runner/model.ts",
+    );
+    expect(mocks.initSessionState).not.toHaveBeenCalled();
+  });
+
+  it("returns plain verification failure for trusted file lookup when file is missing", async () => {
+    mocks.resolveTrustedRepoInspectionPromptFromTexts.mockReturnValueOnce({
+      kind: "file_lookup",
+      path: "src/agents/pi-embedded-runner/model.ts",
+    });
+    mocks.fsAccess.mockRejectedValueOnce(new Error("ENOENT"));
+
+    const reply = await getReplyFromConfig(
+      buildCtx({
+        Body: "Use actual repo files only. Which file contains the Ollama fallback fix? If you cannot verify, say so plainly.",
+      }),
+      undefined,
+      {},
+    );
+
+    expect(reply).toEqual({
+      text: "I couldn't verify that file in the workspace repo.",
+      isError: true,
+    });
+    expect(mocks.fsAccess).toHaveBeenCalledWith(
+      "/tmp/workspace/src/agents/pi-embedded-runner/model.ts",
+    );
     expect(mocks.initSessionState).not.toHaveBeenCalled();
   });
 
