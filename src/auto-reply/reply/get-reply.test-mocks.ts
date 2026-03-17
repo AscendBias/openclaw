@@ -9,6 +9,7 @@ export function registerGetReplyCommonMocks(): void {
   }));
   vi.mock("../../agents/model-selection.js", () => ({
     resolveModelRefFromString: vi.fn(() => null),
+    resolveOllamaFirstReasoningModel: vi.fn(({ fallback }) => fallback),
   }));
   vi.mock("../../agents/timeout.js", () => ({
     resolveAgentTimeoutMs: vi.fn(() => 60000),

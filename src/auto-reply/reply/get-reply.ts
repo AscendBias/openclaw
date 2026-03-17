@@ -61,6 +61,11 @@ function mergeSkillFilters(channelFilter?: string[], agentFilter?: string[]): st
   return channel.filter((name) => agentSet.has(name));
 }
 
+function isStrictLocalReasoningProvider(provider: string): boolean {
+  const normalized = provider.trim().toLowerCase();
+  return normalized === "ollama" || normalized === "local";
+}
+
 export async function getReplyFromConfig(
   ctx: MsgContext,
   opts?: GetReplyOptions,
@@ -400,6 +405,13 @@ export async function getReplyFromConfig(
     sessionKey,
     workspaceDir,
   });
+
+  if (opts?.localTaskLane === "reasoning-local" && !isStrictLocalReasoningProvider(provider)) {
+    return {
+      text: `Local Reasoning Lane requires a local Ollama/local provider. Current selection ${provider}/${model} is not local.`,
+      isError: true,
+    };
+  }
 
   return runPreparedReply({
     ctx,
