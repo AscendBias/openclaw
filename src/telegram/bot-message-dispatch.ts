@@ -1,22 +1,16 @@
-import fs from "node:fs/promises";
-import path from "node:path";
 import type { Bot } from "grammy";
-import {
-  resolveAgentDir,
-  resolveAgentWorkspaceDir,
-  resolveDefaultAgentId,
-} from "../agents/agent-scope.js";
+import { resolveAgentDir } from "../agents/agent-scope.js";
 import {
   findModelInCatalog,
   loadModelCatalog,
   modelSupportsVision,
 } from "../agents/model-catalog.js";
 import { resolveDefaultModelForAgent } from "../agents/model-selection.js";
-import {
-  resolveTrustedRepoInspectionPromptFromTexts,
-  runTrustedRepoInspectionExec,
-} from "../agents/trusted-repo-inspection.js";
 import { resolveChunkMode } from "../auto-reply/chunk.js";
+import {
+  resolveDeterministicLocalLaneMatch,
+  runDeterministicLocalLane,
+} from "../auto-reply/deterministic-local-lane.js";
 import { clearHistoryEntriesIfEnabled } from "../auto-reply/reply/history.js";
 import { classifyLocalTaskLane } from "../auto-reply/reply/local-task-lane.js";
 import { dispatchReplyWithBufferedBlockDispatcher } from "../auto-reply/reply/provider-dispatcher.js";
@@ -174,38 +168,12 @@ export const dispatchTelegramMessage = async ({
     statusReactionController,
   } = context;
 
-  const trustedRepoInspection = resolveTrustedRepoInspectionPromptFromTexts([
-    ctxPayload.BodyForCommands,
-    ctxPayload.CommandBody,
-    ctxPayload.RawBody,
-    ctxPayload.Body,
-    ctxPayload.BodyForAgent,
-  ]);
-  if (trustedRepoInspection) {
-    const agentId = route.agentId || resolveDefaultAgentId(cfg);
-    const workspaceDir = resolveAgentWorkspaceDir(cfg, agentId);
-    let directReplyText: string;
-    let isErrorReply = false;
-    if (trustedRepoInspection.kind === "exec") {
-      try {
-        directReplyText = await runTrustedRepoInspectionExec({
-          argv: trustedRepoInspection.argv,
-          cwd: workspaceDir,
-          timeoutMs: 10_000,
-        });
-      } catch {
-        directReplyText = "Unable to run the requested workspace repo command.";
-        isErrorReply = true;
-      }
-    } else {
-      try {
-        await fs.access(path.join(workspaceDir, trustedRepoInspection.path));
-        directReplyText = trustedRepoInspection.path;
-      } catch {
-        directReplyText = "Unable to verify the Ollama fallback fix path.";
-        isErrorReply = true;
-      }
-    }
+  const deterministicLocalMatch = resolveDeterministicLocalLaneMatch({
+    ctx: ctxPayload,
+    cfg,
+  });
+  if (deterministicLocalMatch) {
+    const deterministicReply = await runDeterministicLocalLane(deterministicLocalMatch);
 
     const directDelivery = await deliverReplies({
       chatId: String(chatId),
@@ -231,7 +199,7 @@ export const dispatchTelegramMessage = async ({
       }),
       linkPreview: telegramCfg.linkPreview,
       replyQuoteText: undefined,
-      replies: [{ text: directReplyText, isError: isErrorReply }],
+      replies: [deterministicReply],
       onVoiceRecording: sendRecordVoice,
     });
     if (!directDelivery.delivered) {

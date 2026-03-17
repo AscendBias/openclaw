@@ -240,7 +240,7 @@ describe("dispatchTelegramMessage draft streaming", () => {
     expect(dispatchReplyWithBufferedBlockDispatcher).not.toHaveBeenCalled();
     expect(deliverReplies).toHaveBeenCalledWith(
       expect.objectContaining({
-        replies: [{ text: "safe-agent", isError: false }],
+        replies: [{ text: "safe-agent" }],
       }),
     );
   });
@@ -286,7 +286,7 @@ describe("dispatchTelegramMessage draft streaming", () => {
 
     expect(deliverReplies).toHaveBeenCalledWith(
       expect.objectContaining({
-        replies: [{ text: "abc1234", isError: false }],
+        replies: [{ text: "abc1234" }],
       }),
     );
     expect(dispatchReplyWithBufferedBlockDispatcher).not.toHaveBeenCalled();
@@ -315,7 +315,7 @@ describe("dispatchTelegramMessage draft streaming", () => {
     expect(dispatchReplyWithBufferedBlockDispatcher).not.toHaveBeenCalled();
     expect(deliverReplies).toHaveBeenCalledWith(
       expect.objectContaining({
-        replies: [{ text: "src/agents/pi-embedded-runner/model.ts", isError: false }],
+        replies: [{ text: "src/agents/pi-embedded-runner/model.ts" }],
       }),
     );
   });
